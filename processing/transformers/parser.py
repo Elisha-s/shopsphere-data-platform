@@ -1,35 +1,7 @@
 from pyspark.sql.functions import col, from_json
-from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
-    DoubleType,
-    TimestampType,
-)
 from pyspark.sql import DataFrame
+from processing.schemas.order_schema import ORDER_EVENT_SCHEMA
 
-
-# ==========================================================
-# Event Schema
-# ==========================================================
-order_event_schema = StructType([
-    StructField("event_type", StringType()),
-
-    StructField(
-        "payload",
-
-        StructType([
-
-            StructField("order_id", StringType()),
-            StructField("customer_id", StringType()),
-            StructField("product_id", StringType()),
-            StructField("total_amount", DoubleType())
-
-        ])
-    ),
-
-    StructField("event_timestamp", TimestampType())
-])
 
 
 def parse_orders(df: DataFrame) -> DataFrame:
@@ -42,18 +14,34 @@ def parse_orders(df: DataFrame) -> DataFrame:
         .select(
             from_json(
                 col("value"),
-                order_event_schema
+                ORDER_EVENT_SCHEMA
             ).alias("data")
         )
     )
 
-    return (
-        parsed.select(
-            col("data.event_type"),
-            col("data.payload.order_id"),
-            col("data.payload.customer_id"),
-            col("data.payload.product_id"),
-            col("data.payload.total_amount").alias("amount"),
-            col("data.event_timestamp")
-        )
-    )
+    return parsed.select(
+
+    col("data.event_type"),
+
+    col("data.payload.order_id"),
+    col("data.payload.customer_id"),
+    col("data.payload.product_id"),
+    col("data.payload.product_name"),
+    col("data.payload.category"),
+    col("data.payload.brand"),
+    col("data.payload.quantity"),
+    col("data.payload.unit_price"),
+
+    col("data.payload.total_amount"),
+
+    col("data.payload.payment_method"),
+    col("data.payload.order_status"),
+
+    col("data.payload.city"),
+    col("data.payload.state"),
+    col("data.payload.country"),
+
+    col("data.payload.order_timestamp"),
+
+    col("data.event_timestamp")
+)

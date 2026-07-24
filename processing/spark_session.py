@@ -1,9 +1,9 @@
 from pyspark.sql import SparkSession
 
-from configs.config import SPARK_APP_NAME, SPARK_MASTER
+from configs.config import SPARK_APP_NAME, SPARK_MASTER, LOG_LEVEL
 
 
-def create_spark_session():
+def create_spark_session() -> SparkSession:
 
     spark = (
         SparkSession.builder
@@ -27,6 +27,6 @@ def create_spark_session():
         .getOrCreate()
     )
 
-    spark.sparkContext.setLogLevel("WARN")
+    spark.sparkContext.setLogLevel(LOG_LEVEL)
 
     return spark

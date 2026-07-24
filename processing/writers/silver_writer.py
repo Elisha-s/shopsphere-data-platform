@@ -1,34 +1,12 @@
 from pyspark.sql.functions import col
 
-
-def clean_orders(df):
-
-    cleaned = (
-
-        df
-
-        .filter(
-            col("amount") > 0
-        )
-
-        .filter(
-            col("order_id").isNotNull()
-        )
-
-        .filter(
-            col("customer_id").isNotNull()
-        )
-
-        .dropDuplicates(
-            ["order_id"]
-        )
-
-    )
-
-    return cleaned
-
+from configs.config import SILVER_PATH, SILVER_CHECKPOINT 
 
 def write_silver(df):
+     
+    """
+    Write the Silver layer to Delta Lake.
+    """
 
     return (
 
@@ -40,11 +18,11 @@ def write_silver(df):
 
         .option(
             "checkpointLocation",
-            "data/checkpoints/silver/orders"
+            SILVER_CHECKPOINT
         )
 
         .start(
-            "data/silver/orders"
+            SILVER_PATH
         )
 
     )

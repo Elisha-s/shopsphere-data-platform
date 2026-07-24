@@ -1,7 +1,17 @@
 from pyspark.sql.functions import col, from_json
-from pyspark.sql.types import *
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    DoubleType,
+    TimestampType,
+)
 from pyspark.sql import DataFrame
 
+
+# ==========================================================
+# Event Schema
+# ==========================================================
 order_event_schema = StructType([
     StructField("event_type", StringType()),
 

@@ -4,10 +4,9 @@ from processing.readers.kafka_reader import create_kafka_stream
 from processing.transformers.parser import parse_orders
 
 from processing.writers.bronze_writer import write_bronze
-from processing.writers.silver_writer import (
-    clean_orders,
-    write_silver,
-)
+from processing.writers.silver_writer import write_silver
+from processing.transformers.silver_transformer import clean_orders
+
 
 
 def main():

@@ -84,3 +84,17 @@ GOLD_ORDERS_PER_PRODUCT_PATH = str(
 GOLD_ORDERS_PER_PRODUCT_CHECKPOINT = str(
     DATA_DIR / "checkpoints" / "gold" / "orders_per_product"
 )
+
+# ==========================================================
+# Project Configuration
+# ==========================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+DATA_DIR = PROJECT_ROOT / "data"
+
+# ==========================================================
+# Logging
+# ==========================================================
+
+LOG_LEVEL = "WARN"

@@ -77,12 +77,24 @@ GOLD_CUSTOMER_REVENUE_CHECKPOINT = str(
     DATA_DIR / "checkpoints" / "gold" / "customer_revenue"
 )
 
-GOLD_ORDERS_PER_PRODUCT_PATH = str(
-    DATA_DIR / "gold" / "orders_per_product"
+GOLD_PRODUCT_REVENUE_PATH = str(
+    DATA_DIR / "gold" / "product_revenue"
 )
 
-GOLD_ORDERS_PER_PRODUCT_CHECKPOINT = str(
-    DATA_DIR / "checkpoints" / "gold" / "orders_per_product"
+GOLD_PRODUCT_REVENUE_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "gold" / "product_revenue"
+)
+
+GOLD_SALES_SUMMARY_PATH = str(
+    DATA_DIR / "gold" / "sales_summary"
+)
+
+GOLD_CUSTOMER_METRICS_PATH = str(
+    DATA_DIR / "gold" / "customer_metrics"
+)
+
+GOLD_PRODUCT_METRICS_PATH = str(
+    DATA_DIR / "gold" / "product_metrics"
 )
 
 # ==========================================================

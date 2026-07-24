@@ -23,7 +23,7 @@ order_event_schema = StructType([
             StructField("order_id", StringType()),
             StructField("customer_id", StringType()),
             StructField("product_id", StringType()),
-            StructField("amount", DoubleType())
+            StructField("total_amount", DoubleType())
 
         ])
     ),
@@ -53,7 +53,7 @@ def parse_orders(df: DataFrame) -> DataFrame:
             col("data.payload.order_id"),
             col("data.payload.customer_id"),
             col("data.payload.product_id"),
-            col("data.payload.amount"),
+            col("data.payload.total_amount").alias("amount"),
             col("data.event_timestamp")
         )
     )

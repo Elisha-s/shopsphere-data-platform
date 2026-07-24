@@ -1,0 +1,6 @@
+delta-spark==3.2.0
+importlib_metadata==9.0.0
+kafka-python==3.0.8
+py4j==0.10.9.7
+pyspark==3.5.6
+zipp==4.1.0

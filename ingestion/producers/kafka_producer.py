@@ -2,9 +2,13 @@ import json
 from kafka import KafkaProducer
 
 producer = KafkaProducer(
-    bootstrap_servers="localhost:9094",
-    value_serializer=lambda value: json.dumps(value).encode("utf-8")
+    bootstrap_servers="kafka:9092",
+    value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+    key_serializer=lambda key: str(key).encode("utf-8"),
+    acks = "all"
 )
+
+
 
 def send_event(event):
     """
@@ -17,11 +21,25 @@ def send_event(event):
         kafka.producer.future.FutureRecordMetadata:
             A future representing the asynchronous send operation.
     """
+
+    customer_id = event["payload"]["customer_id"]
+
+
     future = producer.send(
         "orders",
-        value=event
+        value=event,
+        key=customer_id
     )
 
     producer.flush()
+
+    metadata = future.get(timeout=10)
+
+    print(
+        f"[Producer]"
+        f"Customer = {customer_id} | "
+        f"Partition = {metadata.partition} | "
+        f"Offset = {metadata.offset} | "
+    )
 
     return future

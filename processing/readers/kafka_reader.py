@@ -20,5 +20,6 @@ def create_kafka_stream(spark:SparkSession) -> DataFrame:
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
         .option("subscribe", KAFKA_TOPIC)
         .option("startingOffsets", STARTING_OFFSETS)
+        .option("maxOffsetsPerTrigger", "1000")
         .load()
     )

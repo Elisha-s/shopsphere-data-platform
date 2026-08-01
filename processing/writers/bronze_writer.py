@@ -12,5 +12,6 @@ def write_bronze(df: DataFrame):
             "checkpointLocation",
             BRONZE_CHECKPOINT
         )
+        .trigger(processingTime="5 seconds")
         .start(BRONZE_PATH)
     )

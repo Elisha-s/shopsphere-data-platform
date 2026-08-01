@@ -4,10 +4,13 @@ from processing.readers.kafka_reader import create_kafka_stream
 from processing.transformers.parser import parse_orders
 
 from processing.writers.bronze_writer import write_bronze
-from processing.writers.silver_writer import write_silver
-from processing.transformers.silver_transformer import clean_orders
+
+from processing.quality.validator import split_valid_invalid
+from processing.writers.invalid_writer import write_invalid
 
 from processing.logger import get_logger
+
+import time
 
 logger = get_logger(__name__)
 
@@ -23,19 +26,35 @@ def main():
     logger.info("Parsing Kafka events...")
     parsed_stream = parse_orders(raw_stream)
 
+    valid_df, invalid_df = split_valid_invalid(parsed_stream)
+
+    print("===== AFTER VALIDATOR =====")
+    valid_df.printSchema()
+    print(valid_df.columns)
+
     logger.info("Starting Bronze stream...")
-    bronze_query = write_bronze(parsed_stream)
+    bronze_query = write_bronze(valid_df)
 
-    logger.info("Applying Silver transformations...")
-    silver_df = clean_orders(parsed_stream)
+    invalid_query = write_invalid(invalid_df)
 
-    logger.info("Starting Silver stream...")
-    silver_query = write_silver(silver_df)
+
 
     logger.info("Streaming pipeline started successfully.")
+
     
-    bronze_query.awaitTermination()
-    silver_query.awaitTermination()
+
+    while True:
+        print("\n===== QUERY STATUS =====")
+
+        print("Bronze:")
+        print(bronze_query.status)
+        print("Exception:", bronze_query.exception())
+
+        print("\nInvalid:")
+        print(invalid_query.status)
+        print("Exception:", invalid_query.exception())
+
+        time.sleep(5)
 
 
 if __name__ == "__main__":

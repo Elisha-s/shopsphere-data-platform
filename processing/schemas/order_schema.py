@@ -5,6 +5,7 @@ from pyspark.sql.types import (
     IntegerType,
     DoubleType,
     TimestampType,
+    BooleanType
 )
 
 ORDER_EVENT_SCHEMA = StructType(

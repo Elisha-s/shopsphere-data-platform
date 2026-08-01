@@ -1,8 +1,16 @@
+version: "3.9"
+
 services:
+
+  ##################################################
+  # Kafka
+  ##################################################
+
   kafka:
     image: apache/kafka:4.1.2
     container_name: kafka
     hostname: kafka
+
     ports:
       - "9092:9092"
       - "9094:9094"
@@ -10,12 +18,18 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
+
       KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
@@ -23,14 +37,23 @@ services:
 
     volumes:
       - kafka-data:/var/lib/kafka/data
+
     restart: unless-stopped
+
     networks:
       - shopsphere-network
 
 
+  ##################################################
+  # Kafka UI
+  ##################################################
+
   kafka-ui:
+
     image: provectuslabs/kafka-ui:latest
+
     container_name: kafka-ui
+
     ports:
       - "8080:8080"
 
@@ -38,8 +61,10 @@ services:
       - kafka
 
     environment:
-        KAFKA_CLUSTERS_0_NAME: shopsphere
-        KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: localhost:9092
+
+      KAFKA_CLUSTERS_0_NAME: shopsphere
+
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
 
     restart: unless-stopped
 
@@ -47,8 +72,203 @@ services:
       - shopsphere-network
 
 
+  ##################################################
+  # Producer
+  ##################################################
+
+  producer:
+
+    build: 
+        context : ..
+        dockerfile : docker/Dockerfile
+
+    image: shopsphere
+
+    container_name: producer
+
+    working_dir: /app
+
+    command: python main.py
+
+    volumes:
+      - ../:/app
+
+    depends_on:
+      - kafka
+
+    restart: unless-stopped
+
+    networks:
+      - shopsphere-network
+
+
+  ##################################################
+  # Bronze Pipeline
+  ##################################################
+
+  bronze:
+
+    build: 
+        context : ..
+        dockerfile : docker/Dockerfile
+
+    image: shopsphere
+
+    container_name: bronze
+
+    working_dir: /app
+
+    command: python -m processing.pipelines.bronze_pipeline
+
+    volumes:
+      - ../:/app
+
+    depends_on:
+      - kafka
+
+    restart: unless-stopped
+
+    networks:
+      - shopsphere-network
+      
+    ports:
+      - "4040:4040"
+
+
+  ##################################################
+  # Silver Pipeline
+  ##################################################
+
+  silver:
+
+    build: 
+        context : ..
+        dockerfile : docker/Dockerfile
+
+    image: shopsphere
+
+    container_name: silver
+
+    working_dir: /app
+
+    command: python -m processing.pipelines.silver_pipeline
+
+    volumes:
+      - ../:/app
+
+    depends_on:
+      - bronze
+
+    restart: unless-stopped
+
+    networks:
+      - shopsphere-network
+
+
+  ##################################################
+  # Gold Pipeline
+  ##################################################
+
+  gold:
+
+    build: 
+        context : ..
+        dockerfile : docker/Dockerfile
+
+    image: shopsphere
+
+    container_name: gold
+
+    working_dir: /app
+
+    command: python -m processing.pipelines.gold_pipeline
+
+    volumes:
+      - ../:/app
+
+    depends_on:
+      - silver
+
+    restart: unless-stopped
+
+    networks:
+      - shopsphere-network
+
+
+##################################################
+# Volumes
+##################################################
+
 volumes:
+
   kafka-data:
 
+
+##################################################
+# Networks
+##################################################
+
 networks:
+
   shopsphere-network:
+
+
+
+
+
+
+# services:
+#   kafka:
+#     image: apache/kafka:4.1.2
+#     container_name: kafka
+#     hostname: kafka
+#     ports:
+#       - "9092:9092"
+#       - "9094:9094"
+
+#     environment:
+#       KAFKA_NODE_ID: 1
+#       KAFKA_PROCESS_ROLES: broker,controller
+#       KAFKA_LISTENERS: PLAINTEXT://:9092,EXTERNAL://:9094,CONTROLLER://:9093
+#       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+#       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+#       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+#       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+#       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+#       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+#     volumes:
+#       - kafka-data:/var/lib/kafka/data
+#     restart: unless-stopped
+#     networks:
+#       - shopsphere-network
+
+
+#   kafka-ui:
+#     image: provectuslabs/kafka-ui:latest
+#     container_name: kafka-ui
+#     ports:
+#       - "8080:8080"
+
+#     depends_on:
+#       - kafka
+
+#     environment:
+#         KAFKA_CLUSTERS_0_NAME: shopsphere
+#         KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: localhost:9092
+
+#     restart: unless-stopped
+
+#     networks:
+#       - shopsphere-network
+
+
+# volumes:
+#   kafka-data:
+
+# networks:
+#   shopsphere-network:
+

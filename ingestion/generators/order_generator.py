@@ -1,5 +1,5 @@
 import random
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from ingestion.generators.customer_generator import generate_customers
 from ingestion.generators.product_generator import generate_products
@@ -22,7 +22,19 @@ def generate_order(order_number):
         ["CREATED", "PAID", "SHIPPED", "DELIVERED"]
     )
 
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc)
+
+    is_late_event = random.random() < 0.05
+    if is_late_event:
+        timestamp = timestamp - timedelta(minutes=7)
+        print(
+            f"[Late Event] Order O{order_number:08d} "
+            f"has event time {timestamp.isoformat()}"
+        )
+
+    # Convert to string only once
+    timestamp_string = timestamp.isoformat()
+
 
     total_amount = quantity * product["price"]
 
@@ -41,5 +53,6 @@ def generate_order(order_number):
         "city": customer["city"],
         "state": customer["state"],
         "country": customer["country"],
-        "order_timestamp": timestamp
+        "order_timestamp": timestamp_string,
+        "is_late_event": is_late_event
     }

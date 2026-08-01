@@ -16,9 +16,9 @@ MAX_ORDER_AMOUNT = 5000.0
 # Kafka Configuration
 # ==========================================================
 
-KAFKA_BOOTSTRAP_SERVERS = "localhost:9094"
+KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 KAFKA_TOPIC = "orders"
-STARTING_OFFSETS = "earliest"
+STARTING_OFFSETS = "latest"
 
 # ==========================================================
 # Spark Configuration
@@ -57,45 +57,55 @@ SILVER_CHECKPOINT = str(
     DATA_DIR / "checkpoints" / "silver" / "orders"
 )
 
+
 # ==========================================================
 # Gold Layer
 # ==========================================================
 
-GOLD_TOTAL_REVENUE_PATH = str(
-    DATA_DIR / "gold" / "total_revenue"
+GOLD_REVENUE_BY_CATEGORY_PATH = str(
+    DATA_DIR / "gold" / "revenue_by_category"
 )
 
-GOLD_TOTAL_REVENUE_CHECKPOINT = str(
-    DATA_DIR / "checkpoints" / "gold" / "total_revenue"
+GOLD_REVENUE_BY_CATEGORY_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "gold" / "revenue_by_category"
 )
 
-GOLD_CUSTOMER_REVENUE_PATH = str(
-    DATA_DIR / "gold" / "customer_revenue"
+
+GOLD_REVENUE_BY_BRAND_PATH = str(
+    DATA_DIR / "gold" / "revenue_by_brand"
 )
 
-GOLD_CUSTOMER_REVENUE_CHECKPOINT = str(
-    DATA_DIR / "checkpoints" / "gold" / "customer_revenue"
+GOLD_REVENUE_BY_BRAND_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "gold" / "revenue_by_brand"
 )
 
-GOLD_PRODUCT_REVENUE_PATH = str(
-    DATA_DIR / "gold" / "product_revenue"
-)
-
-GOLD_PRODUCT_REVENUE_CHECKPOINT = str(
-    DATA_DIR / "checkpoints" / "gold" / "product_revenue"
-)
-
-GOLD_SALES_SUMMARY_PATH = str(
-    DATA_DIR / "gold" / "sales_summary"
-)
 
 GOLD_CUSTOMER_METRICS_PATH = str(
     DATA_DIR / "gold" / "customer_metrics"
 )
 
+GOLD_CUSTOMER_METRICS_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "gold" / "customer_metrics"
+)
+
+
 GOLD_PRODUCT_METRICS_PATH = str(
     DATA_DIR / "gold" / "product_metrics"
 )
+
+GOLD_PRODUCT_METRICS_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "gold" / "product_metrics"
+)
+
+
+GOLD_SALES_SUMMARY_PATH = str(
+    DATA_DIR / "gold" / "sales_summary"
+)
+
+GOLD_SALES_SUMMARY_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "gold" / "sales_summary"
+)
+
 
 # ==========================================================
 # Project Configuration
@@ -110,3 +120,11 @@ DATA_DIR = PROJECT_ROOT / "data"
 # ==========================================================
 
 LOG_LEVEL = "WARN"
+
+INVALID_PATH = str(
+    DATA_DIR / "invalid" / "orders"
+)
+
+INVALID_CHECKPOINT = str(
+    DATA_DIR / "checkpoints" / "invalid_orders"
+)

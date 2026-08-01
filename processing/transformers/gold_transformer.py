@@ -12,7 +12,7 @@ def calculate_total_revenue(df : DataFrame) -> DataFrame:
         DataFrame: A DataFrame with the total revenue metric.
     """
     return df.agg(
-        sum("amount").alias("total_revenue")
+        sum("total_amount").alias("total_revenue")
     )
 
 def calculate_customer_revenue(df : DataFrame) -> DataFrame:
@@ -26,7 +26,7 @@ def calculate_customer_revenue(df : DataFrame) -> DataFrame:
         DataFrame: A DataFrame with the total revenue per customer metric.
     """
     return df.groupBy("customer_id").agg(
-        sum("amount").alias("total_revenue"), 
+        sum("total_amount").alias("total_revenue"), 
         count("*").alias("total_orders")
     )
 
@@ -41,16 +41,16 @@ def calculate_product_revenue(df : DataFrame) -> DataFrame:
         DataFrame: A DataFrame with the total revenue per product metric.
     """
     return df.groupBy("product_id").agg(
-        sum("amount").alias("total_revenue"), 
+        sum("total_amount").alias("total_revenue"), 
         count("*").alias("total_orders")
     )
 
 def build_sales_summary(df : DataFrame) -> DataFrame:
     return (
         df.agg(
-            sum("amount").alias("total_revenue"),
+            sum("total_amount").alias("total_revenue"),
             count("*").alias("total_orders"),
-            avg("amount").alias("average_order_value"),
+            avg("total_amount").alias("average_order_value"),
             countDistinct("customer_id").alias("unique_customers"),
             countDistinct("product_id").alias("unique_products")
         )
@@ -59,9 +59,9 @@ def build_sales_summary(df : DataFrame) -> DataFrame:
 def build_customer_metrics(df : DataFrame) -> DataFrame:
     return(
         df.groupBy("customer_id").agg(
-            sum("amount").alias("total_revenue"),
+            sum("total_amount").alias("total_revenue"),
             count("*").alias("total_orders"),
-            avg("amount").alias("average_order_value"),
+            avg("total_amount").alias("average_order_value"),
         )
     )
 
@@ -69,7 +69,7 @@ def build_product_metrics(df : DataFrame) -> DataFrame:
     return(
         df.groupBy("product_id").agg(
             count("*").alias("total_orders"),
-            sum("amount").alias("total_revenue"),
-            avg("amount").alias("average_order_value")
+            sum("total_amount").alias("total_revenue"),
+            avg("total_amount").alias("average_order_value")
         )
     )

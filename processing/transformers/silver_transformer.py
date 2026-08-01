@@ -13,7 +13,7 @@ def clean_orders(df: DataFrame) -> DataFrame:
 
         # Remove invalid order amounts
         .filter(
-            col("amount") > 0
+            col("total_amount") > 0
         )
 
         # Mandatory business keys

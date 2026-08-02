@@ -1,0 +1,43 @@
+# A sample job for shopsphere_data_platform.
+
+resources:
+  jobs:
+    sample_job:
+      name: sample_job
+
+      #email_notifications:
+      #  on_failure:
+      #    - your_email@example.com
+
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+
+      tasks:
+        - task_key: python_wheel_task
+          python_wheel_task:
+            package_name: shopsphere_data_platform
+            entry_point: main
+            parameters:
+              - "--output-path"
+              - "/Volumes/${var.catalog}/bronze/order_events_landing"
+              - "--number-of-events"
+              - "500"
+          environment_key: default
+        - task_key: refresh_pipeline
+          depends_on:
+            - task_key: python_wheel_task
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.shopsphere_data_platform_etl.id}
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              # By default we just include the .whl file generated for the shopsphere_data_platform package.
+              # See https://docs.databricks.com/dev-tools/bundles/library-dependencies.html
+              # for more information on how to add other libraries.
+              - ../dist/*.whl

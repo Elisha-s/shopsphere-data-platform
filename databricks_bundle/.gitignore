@@ -1,10 +1,39 @@
-.databricks/
-build/
-dist/
+# Python
 __pycache__/
-*.egg-info
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# macOS
+.DS_Store
+
+# Virtual environments
 .venv/
-scratch/**
-!scratch/README.md
-**/explorations/**
-**/!explorations/README.md
+venv/
+.env
+
+# IDE
+.idea/
+
+# Local pipeline data
+data/bronze/
+data/silver/
+data/gold/
+data/invalid/
+data/checkpoints/
+
+# Spark
+spark-warehouse/
+metastore_db/
+derby.log
+
+# Databricks bundle generated state
+**/.databricks/
+
+# Python build artifacts
+**/dist/*
+!**/dist/.gitignore
+build/
+*.egg-info/

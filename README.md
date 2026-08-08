@@ -1,46 +1,69 @@
 # ShopSphere Data Platform
 
-ShopSphere is an end-to-end e-commerce data engineering platform built in two stages:
+ShopSphere is an end-to-end Azure data engineering project that simulates a production e-commerce event processing platform.
 
-1. A native streaming implementation using Kafka, Apache Spark Structured Streaming, Docker, and Delta Lake.
-2. A managed Azure Databricks implementation using Lakeflow Spark Declarative Pipelines, Unity Catalog, Auto Loader, Delta Lake, Python wheel tasks, and Declarative Automation Bundles.
+The platform generates customer and order events, publishes them to Azure Event Hubs, processes them through a Medallion architecture in Azure Databricks, performs incremental processing using Delta Lake Change Data Feed and MERGE, and orchestrates the complete workflow using Azure Data Factory.
 
-The project demonstrates streaming ingestion, medallion architecture, late-arriving data handling, data-quality enforcement, business aggregations, deployment automation, and operational monitoring.
+The project focuses on production-oriented data engineering concepts including streaming ingestion, data quality, deduplication, incremental processing, idempotency, orchestration, failure handling, and deployment automation.
 
 ---
 
 ## Architecture
 
 ```text
-Synthetic Order Generator
-        |
-        v
-Python Wheel Job
-        |
-        v
-Unity Catalog Volume
-        |
-        v
-Auto Loader
-        |
-        v
-Bronze Streaming Table
-        |
-        v
-Silver Processing
-   |            |
-   v            v
-Valid Orders   Invalid Orders
-        |
-        v
-Gold Analytics
-   |             |              |
-   v             v              v
-Revenue by   Customer       Product
-Category     Metrics        Metrics
-        |
-        v
-Lakeflow Event Log
-        |
-        v
-Monitoring Views
+                         ┌─────────────────────────┐
+                         │   Azure Data Factory    │
+                         │     Orchestration       │
+                         └────────────┬────────────┘
+                                      │
+                 Bronze → Silver → Gold → CDF/MERGE → Validation
+                                      │
+                                      ▼
+
+Python Event Generators
+        │
+        ▼
+Azure Event Hubs
+        │
+        │ JSON events
+        ▼
+Azure Databricks
+        │
+        ▼
+┌───────────────────────────────┐
+│            BRONZE             │
+│ Raw Event Hubs events         │
+│ Transport metadata retained   │
+└──────────────┬────────────────┘
+               │
+               ▼
+┌───────────────────────────────┐
+│            SILVER             │
+│ Parsing & type standardization│
+│ Data-quality validation       │
+│ Deduplication                 │
+│ Late-event identification     │
+└───────────┬───────────┬───────┘
+            │           │
+            ▼           ▼
+      Valid Orders   Invalid Orders
+            │
+            ▼
+┌───────────────────────────────┐
+│             GOLD              │
+│ Revenue by category           │
+│ Product metrics               │
+│ Customer metrics              │
+└───────────────────────────────┘
+
+Silver Orders
+      │
+      │ Delta Change Data Feed
+      ▼
+Incremental CDF Processor
+      │
+      ▼
+Delta MERGE
+      │
+      ▼
+current_orders

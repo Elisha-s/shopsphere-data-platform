@@ -87,7 +87,9 @@ TECHNOLOGY STACK -
 | Authentication         | Azure Managed Identity / Databricks Secrets |
 | Version Control        | Git / GitHub                                |
 
-### Incremental Processing with Change Data Feed
+
+
+Incremental Processing with Change Data Feed
 Silver Delta Table
         │
         │ Change Data Feed
@@ -100,7 +102,10 @@ Delta MERGE
         ▼
 current_orders
 
-### ADF Orchestration
+
+
+
+ADF Orchestration
 Bronze Refresh
       ↓
 Wait / Status Polling

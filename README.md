@@ -67,3 +67,58 @@ Delta MERGE
       │
       ▼
 current_orders
+
+
+TECHNOLOGY STACK - 
+| Area                   | Technology                                  |
+| ---------------------- | ------------------------------------------- |
+| Programming            | Python                                      |
+| Distributed Processing | PySpark                                     |
+| Streaming              | Spark Structured Streaming                  |
+| Event Ingestion        | Azure Event Hubs                            |
+| Data Platform          | Azure Databricks                            |
+| Storage Format         | Delta Lake                                  |
+| Data Architecture      | Medallion Architecture                      |
+| Incremental Processing | Delta Change Data Feed                      |
+| Upserts                | Delta Lake MERGE                            |
+| Orchestration          | Azure Data Factory                          |
+| Governance             | Unity Catalog                               |
+| Deployment             | Databricks Asset Bundles                    |
+| Authentication         | Azure Managed Identity / Databricks Secrets |
+| Version Control        | Git / GitHub                                |
+
+### Incremental Processing with Change Data Feed
+Silver Delta Table
+        │
+        │ Change Data Feed
+        ▼
+New / Updated Records
+        │
+        ▼
+Delta MERGE
+        │
+        ▼
+current_orders
+
+### ADF Orchestration
+Bronze Refresh
+      ↓
+Wait / Status Polling
+      ↓
+Bronze Success Gate
+      ↓
+Silver Refresh
+      ↓
+Wait / Status Polling
+      ↓
+Silver Success Gate
+      ↓
+Gold Refresh
+      ↓
+Wait / Status Polling
+      ↓
+Gold Success Gate
+      ↓
+CDF + MERGE
+      ↓
+Output Validation

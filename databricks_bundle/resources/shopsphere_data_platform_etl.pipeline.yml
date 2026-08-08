@@ -1,0 +1,29 @@
+# The main pipeline for shopsphere_data_platform
+
+resources:
+  pipelines:
+    shopsphere_data_platform_etl:
+      name: shopsphere_data_platform_etl
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      root_path: "../src/shopsphere_data_platform_etl"
+
+      configuration:
+        shopsphere.catalog: ${var.catalog}
+        shopsphere.eventhubs.namespace: "shopsphere-events-elisha"
+        shopsphere.eventhubs.topic: "orders"
+        shopsphere.eventhubs.consumer_group: "databricks-shopstream"
+        shopsphere.eventhubs.access_key_name: "shopsphere-databricks-consumer"
+        shopsphere.eventhubs.secret_scope: "shopsphere-eventhubs"
+        shopsphere.eventhubs.secret_key: "consumer-shared-access-key"
+
+      libraries:
+        - glob:
+            include: ../src/shopsphere_data_platform_etl/transformations/**
+
+      environment:
+        dependencies:
+          # We include every dependency defined by pyproject.toml by defining an editable environment
+          # that points to the folder where pyproject.toml is deployed.
+          - --editable ${workspace.file_path}

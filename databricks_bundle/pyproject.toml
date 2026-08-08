@@ -22,6 +22,8 @@ dev = [
 
 [project.scripts]
 main = "shopsphere_data_platform.main:main"
+cdf-merge = "shopsphere_data_platform.cdf_merge:main"
+validate-outputs = "shopsphere_data_platform.validate_outputs:main"
 
 [build-system]
 requires = ["hatchling"]

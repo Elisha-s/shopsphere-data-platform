@@ -11,6 +11,12 @@ resources:
 
       configuration:
         shopsphere.catalog: ${var.catalog}
+        shopsphere.eventhubs.namespace: "shopsphere-events-elisha"
+        shopsphere.eventhubs.topic: "orders"
+        shopsphere.eventhubs.consumer_group: "databricks-shopstream"
+        shopsphere.eventhubs.access_key_name: "shopsphere-databricks-consumer"
+        shopsphere.eventhubs.secret_scope: "shopsphere-eventhubs"
+        shopsphere.eventhubs.secret_key: "consumer-shared-access-key"
 
       libraries:
         - glob:

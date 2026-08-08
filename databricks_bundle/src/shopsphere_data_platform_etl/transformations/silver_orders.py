@@ -6,7 +6,7 @@ from pyspark.sql import functions as F
 CATALOG = spark.conf.get("shopsphere.catalog")
 
 BRONZE_ORDERS_TABLE = (
-    f"{CATALOG}.bronze.order_events"
+    f"{CATALOG}.bronze.eventhub_order_events"
 )
 
 SILVER_ORDERS_TABLE = (
@@ -102,8 +102,12 @@ def flatten_orders() -> DataFrame:
             F.to_timestamp(
                 "payload.order_timestamp"
             ).alias("order_timestamp"),
+            "message_key",
+            "kafka_topic",
+            "kafka_partition",
+            "kafka_offset",
+            "eventhub_enqueued_timestamp",
             "ingestion_timestamp",
-            "source_file",
         )
         .withWatermark(
             "event_timestamp",
@@ -119,6 +123,7 @@ def flatten_orders() -> DataFrame:
         "Validated, flattened, and deduplicated "
         "ShopSphere orders."
     ),
+    table_properties={ "delta.enableChangeDataFeed": "true" }
 )
 @dp.expect_all_or_drop(ORDER_RULES)
 def silver_orders():

@@ -1,43 +1,54 @@
 # ShopSphere Architecture
 
-ShopSphere is a mimic e-commerce data platform implemented in two stages:
+## 1. Architecture Overview
 
-1. A native local streaming implementation using Kafka, Spark Structured Streaming, and Delta Lake.
-2. A managed Azure Databricks implementation using Lakeflow Spark Declarative Pipelines, Unity Catalog, Auto Loader, and Declarative Automation Bundles.
+ShopSphere is an event-driven Azure data platform for processing e-commerce order events.
 
-## Databricks Architecture
+The production-style architecture consists of five major layers:
 
-```text
-Synthetic Order Generator
+1. Event generation
+2. Streaming ingestion
+3. Medallion processing
+4. Incremental state processing
+5. Workflow orchestration
+
+## 2. End-to-End Architecture
+
+Python Event Generators
         |
         v
-Python Wheel Task
+Azure Event Hubs
         |
         v
-Unity Catalog Volume
+Azure Databricks
         |
-        v
-Auto Loader
-        |
-        v
-Bronze Streaming Table
-        |
-        v
+        +---- Bronze Delta
+        |       |
+        |       v
+        +---- Silver
+        |       +---- orders
+        |       +---- invalid_orders
+        |       |
+        |       v
+        +---- Gold
+                +---- sales / revenue metrics
+                +---- product metrics
+                +---- customer metrics
+
 Silver Orders
         |
-        +-------------------+
-        |                   |
-        v                   v
-Valid Orders        Invalid Orders
-        |
+        | Delta Change Data Feed
         v
-Gold Layer
+CDF Incremental Processor
         |
-        +----------------------------+
-        |              |             |
-        v              v             v
-Revenue by       Customer       Product
-Category         Metrics        Metrics
-        |
+        | Delta MERGE
         v
-Monitoring Views
+current_orders
+
+Azure Data Factory
+        |
+        +---- Bronze selective refresh
+        +---- Silver selective refresh
+        +---- Gold selective refresh
+        +---- CDF/MERGE
+        +---- Validation

@@ -12,3 +12,4 @@ pyspark==3.5.6
 pytest==9.1.1
 wcwidth==0.8.2
 zipp==4.1.0
+python-dotenv

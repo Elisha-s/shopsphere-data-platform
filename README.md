@@ -4,7 +4,7 @@ ShopSphere is an end-to-end Azure data engineering project that simulates a prod
 
 The platform generates customer and order events, publishes them to Azure Event Hubs, processes them through a Medallion architecture in Azure Databricks, performs incremental processing using Delta Lake Change Data Feed and MERGE, and orchestrates the complete workflow using Azure Data Factory.
 
-The project focuses on production-oriented data engineering concepts including streaming ingestion, data quality, deduplication, incremental processing, idempotency, orchestration, failure handling, and deployment automation.
+The project focuses on production oriented data engineering concepts including streaming ingestion, data quality, deduplication, incremental processing, idempotency, orchestration, failure handling, and deployment automation.
 
 ---
 
@@ -40,9 +40,9 @@ Azure Databricks
 ┌───────────────────────────────┐
 │            SILVER             │
 │ Parsing & type standardization│
-│ Data-quality validation       │
+│ Data quality validation       │
 │ Deduplication                 │
-│ Late-event identification     │
+│ Late event identification     │
 └───────────┬───────────┬───────┘
             │           │
             ▼           ▼

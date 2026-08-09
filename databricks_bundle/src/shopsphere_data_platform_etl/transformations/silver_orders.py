@@ -1,3 +1,11 @@
+# The Silver layer reads the Bronze Delta table incrementally as a Structured Streaming source. 
+# I flatten the nested event payload, standardize source strings such as event and order timestamps into Spark 
+# timestamp types, preserve Event Hubs metadata for lineage, and use event-time watermarking with event-ID 
+# deduplication to handle duplicate and late-arriving events. I apply Lakeflow data-quality expectations for 
+# required identifiers and positive order values. Valid records are written to the Silver orders table, while 
+# failing records are captured separately with explicit validation-error reasons. I also enable Delta Change 
+# Data Feed on Silver so downstream processing can consume only newly changed records.
+
 from pyspark import pipelines as dp
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
@@ -17,7 +25,8 @@ INVALID_ORDERS_TABLE = (
     f"{CATALOG}.silver.invalid_orders"
 )
 
-
+# This dictionary defines what ShopSphere considers a valid order.
+# This naming is useful because Lakeflow can report metrics against named expectations.
 ORDER_RULES = {
     "event_id_not_null": "event_id IS NOT NULL",
     "order_id_not_null": "order_id IS NOT NULL",
@@ -109,6 +118,7 @@ def flatten_orders() -> DataFrame:
             "eventhub_enqueued_timestamp",
             "ingestion_timestamp",
         )
+        # How long are we willing to maintain streaming state for late-arriving event-time data?
         .withWatermark(
             "event_timestamp",
             "1 day",
@@ -120,21 +130,20 @@ def flatten_orders() -> DataFrame:
 @dp.table(
     name=SILVER_ORDERS_TABLE,
     comment=(
-        "Validated, flattened, and deduplicated "
-        "ShopSphere orders."
+        "Validated, flattened, and deduplicated ShopSphere orders."
     ),
     table_properties={ "delta.enableChangeDataFeed": "true" }
 )
-@dp.expect_all_or_drop(ORDER_RULES)
+@dp.expect_all_or_drop(ORDER_RULES) # This applies all the rules defined earlier and drops records failing validaion from the silver_orders table
 def silver_orders():
     return flatten_orders()
+
 
 
 @dp.table(
     name=INVALID_ORDERS_TABLE,
     comment=(
-        "ShopSphere orders that failed Silver "
-        "data-quality rules."
+        "ShopSphere orders that failed Silver data-quality rules."
     ),
 )
 def invalid_orders():
@@ -183,59 +192,3 @@ def invalid_orders():
         )
     )
 
-
-
-
-
-# from pyspark import pipelines as dp
-# from pyspark.sql import functions as F
-
-
-# @dp.table(
-#     name="orders",
-#     comment="Validated and flattened ShopSphere orders.",
-# )
-# @dp.expect_all_or_drop(
-#     {
-#         "valid_event_id": "event_id IS NOT NULL",
-#         "valid_order_id": "order_id IS NOT NULL",
-#         "valid_customer_id": "customer_id IS NOT NULL",
-#         "valid_product_id": "product_id IS NOT NULL",
-#         "positive_quantity": "quantity > 0",
-#         "positive_unit_price": "unit_price > 0",
-#         "positive_total_amount": "total_amount > 0",
-#         "valid_event_timestamp": "event_timestamp IS NOT NULL",
-#     }
-# )
-# def orders():
-#     return (
-#         spark.readStream.table("order_events")
-#         .select(
-#             "event_id",
-#             "event_type",
-#             "event_version",
-#             F.to_timestamp("event_timestamp").alias("event_timestamp"),
-#             F.to_timestamp("generated_at").alias("generated_at"),
-#             "is_late_event",
-#             F.col("payload.order_id").alias("order_id"),
-#             F.col("payload.customer_id").alias("customer_id"),
-#             F.col("payload.product_id").alias("product_id"),
-#             F.col("payload.product_name").alias("product_name"),
-#             F.col("payload.category").alias("category"),
-#             F.col("payload.brand").alias("brand"),
-#             F.col("payload.quantity").alias("quantity"),
-#             F.col("payload.unit_price").alias("unit_price"),
-#             F.col("payload.total_amount").alias("total_amount"),
-#             F.col("payload.payment_method").alias("payment_method"),
-#             F.col("payload.order_status").alias("order_status"),
-#             F.col("payload.city").alias("city"),
-#             F.col("payload.state").alias("state"),
-#             F.col("payload.country").alias("country"),
-#             F.to_timestamp(
-#                 "payload.order_timestamp"
-#             ).alias("order_timestamp"),
-#             "ingestion_timestamp",
-#             "source_file",
-#         )
-#         .dropDuplicates(["event_id"])
-#     )

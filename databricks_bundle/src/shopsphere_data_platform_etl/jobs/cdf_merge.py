@@ -1,3 +1,10 @@
+# I enabled Delta Change Data Feed on the Silver orders table and maintain a metadata row with the last 
+# successfully processed Delta version. On each run, the CDF job compares that state with the latest source 
+# version and reads only the unprocessed version range. I keep inserts and update post-images, then use a 
+# window over order ID ordered by commit version to retain only the latest change per order in that batch. 
+# Those changes are upserted into a current-orders Delta table using MERGE. Only after the MERGE succeeds do 
+# I advance the processed-version state, which makes retries idempotent and avoids full-table rebuilds.
+
 from delta.tables import DeltaTable
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -14,7 +21,10 @@ PIPELINE_NAME = "current_orders_merge"
 CDF_START_VERSION = 9
 
 
+# This is the entry-point function used by your wheel script.
 def main():
+
+    # Use the Spark session already available in the Databricks job environment, or create one if necessary.
     spark = SparkSession.builder.getOrCreate()
 
     # ---------------------------------------------------------
@@ -105,7 +115,7 @@ def main():
             "_row_number",
             F.row_number().over(window),
         )
-        .filter(F.col("_row_number") == 1)
+        .filter(F.col("_row_number") == 1) # Only the newest change for that order in this batch survives.
         .drop(
             "_row_number",
             "_change_type",
@@ -129,7 +139,7 @@ def main():
         print(f"Created {TARGET_TABLE}")
 
     else:
-
+        # gets a DeltaTable object.
         target = DeltaTable.forName(
             spark,
             TARGET_TABLE,
@@ -187,7 +197,11 @@ def main():
         f"Saved checkpoint version: "
         f"{latest_version}"
     )
-
+#The state advances only after the target MERGE succeeds, which prevents data loss. If the target succeeds but 
+# state persistence fails, the next run can replay those CDF versions. Because the target operation is an 
+# idempotent MERGE keyed by order ID, replay is safer than prematurely advancing state. In a more rigorous 
+# production design I’d additionally track run IDs/version ranges and reconciliation status to make recovery 
+# explicitly auditable.
 
 if __name__ == "__main__":
     main()

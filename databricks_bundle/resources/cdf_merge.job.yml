@@ -1,7 +1,8 @@
 resources:
   jobs:
-    shopsphere_post_processing:
-      name: shopsphere_post_processing
+
+    shopsphere_cdf_merge:
+      name: shopsphere_cdf_merge
 
       permissions:
         - service_principal_name: fb2921f3-27f3-4d45-855d-6f2feacb5896
@@ -12,16 +13,6 @@ resources:
           python_wheel_task:
             package_name: shopsphere_data_platform
             entry_point: cdf-merge
-
-          environment_key: default
-
-        - task_key: validate_outputs
-          depends_on:
-            - task_key: merge_current_orders
-
-          python_wheel_task:
-            package_name: shopsphere_data_platform
-            entry_point: validate-outputs
 
           environment_key: default
 

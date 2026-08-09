@@ -21,7 +21,6 @@ dev = [
 ]
 
 [project.scripts]
-main = "shopsphere_data_platform_etl.main:main"
 cdf-merge = "shopsphere_data_platform_etl.jobs.cdf_merge:main"
 validate-outputs = "shopsphere_data_platform_etl.jobs.validate_outputs:main"
 

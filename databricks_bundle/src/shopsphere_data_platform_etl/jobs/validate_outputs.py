@@ -54,7 +54,7 @@ def main():
         raise RuntimeError("current_orders is empty")
 
     gold_tables = [
-        "adb_shopsphere_dev.gold.revenue_by_category",
+        "adb_shopsphere_dev.gold.order_activity_by_status",
         "adb_shopsphere_dev.gold.customer_metrics",
         "adb_shopsphere_dev.gold.product_metrics",
     ]

@@ -1,4 +1,4 @@
-from processing.utils.delta_merge import merge_into_delta
+from processing.utils.delta_merge import merge_delta_table
 
 
 def test_delta_merge():

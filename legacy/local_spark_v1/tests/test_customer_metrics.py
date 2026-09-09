@@ -1,4 +1,4 @@
-from processing.transformers.customer_metrics_transformer import customer_metrics
+from processing.transformers.customer_metrics_transformer import build_customer_metrics
 
 
 def test_customer_metrics(spark):
@@ -12,9 +12,9 @@ def test_customer_metrics(spark):
         ["customer_id", "total_amount"],
     )
 
-    result = customer_metrics(df)
+    result = build_customer_metrics(df)
 
-    rows = {r["customer_id"]: r["total_spent"] for r in result.collect()}
+    rows = {r["customer_id"]: r["lifetime_value"] for r in result.collect()}
 
     assert rows["C1"] == 300
     assert rows["C2"] == 500

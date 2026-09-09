@@ -1,4 +1,4 @@
-from processing.transformers.product_metrics_transformer import product_metrics
+from processing.transformers.product_metrics_transformer import build_product_metrics
 
 
 def test_product_metrics(spark):
@@ -12,7 +12,7 @@ def test_product_metrics(spark):
         ["product_id", "quantity"],
     )
 
-    result = product_metrics(df)
+    result = build_product_metrics(df)
 
     rows = {r["product_id"]: r["units_sold"] for r in result.collect()}
 

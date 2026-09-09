@@ -1,0 +1,465 @@
+{
+    "name": "PL_SHOPSPHERE_MEDALLION",
+    "properties": {
+        "activities": [
+            {
+                "name": "ACT_BRONZE_REFRESH",
+                "type": "WebActivity",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "url": "https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates",
+                    "body": {
+                        "refresh_selection": [
+                            "adb_shopsphere_dev.bronze.eventhub_order_events"
+                        ]
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                    }
+                }
+            },
+            {
+                "name": "UNTIL_BRONZE_COMPLETE",
+                "type": "Until",
+                "dependsOn": [
+                    {
+                        "activity": "ACT_BRONZE_REFRESH",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@or(\n    equals(\n        activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n        'COMPLETED'\n    ),\n    or(\n        equals(\n            activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n            'FAILED'\n        ),\n        equals(\n            activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n            'CANCELED'\n        )\n    )\n)",
+                        "type": "Expression"
+                    },
+                    "activities": [
+                        {
+                            "name": "ACT_CHECK_BRONZE_STATUS",
+                            "type": "WebActivity",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "method": "GET",
+                                "url": {
+                                    "value": "@concat(\n  'https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates/',\n  activity('ACT_BRONZE_REFRESH').output.update_id\n)",
+                                    "type": "Expression"
+                                },
+                                "authentication": {
+                                    "type": "MSI",
+                                    "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                                }
+                            }
+                        },
+                        {
+                            "name": "WAIT_BRONZE_POLL",
+                            "type": "Wait",
+                            "dependsOn": [
+                                {
+                                    "activity": "ACT_CHECK_BRONZE_STATUS",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "waitTimeInSeconds": 15
+                            }
+                        }
+                    ],
+                    "timeout": "0.00:30:00"
+                }
+            },
+            {
+                "name": "IF_BRONZE_SUCCEEDED",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "UNTIL_BRONZE_COMPLETE",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@equals(\n    activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n    'COMPLETED'\n)",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "FAIL_BRONZE",
+                            "type": "Fail",
+                            "dependsOn": [],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "message": "ShopSphere orchestration failed at bronze. Check Databricks and ADF run logs.",
+                                "errorCode": "SHOPSPHERE_PIPELINE_FAILED"
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "ACT_SILVER_REFRESH",
+                            "description": "",
+                            "type": "WebActivity",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.00:30:00",
+                                "retry": 2,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "method": "POST",
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "url": "https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates",
+                                "body": {
+                                    "refresh_selection": [
+                                        "adb_shopsphere_dev.silver.orders",
+                                        "adb_shopsphere_dev.silver.invalid_orders"
+                                    ]
+                                },
+                                "authentication": {
+                                    "type": "MSI",
+                                    "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "UNTIL_SILVER_COMPLETE",
+                "type": "Until",
+                "dependsOn": [
+                    {
+                        "activity": "IF_BRONZE_SUCCEEDED",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@or(\n    equals(\n        activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n        'COMPLETED'\n    ),\n    or(\n        equals(\n            activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n            'FAILED'\n        ),\n        equals(\n            activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n            'CANCELED'\n        )\n    )\n)",
+                        "type": "Expression"
+                    },
+                    "activities": [
+                        {
+                            "name": "ACT_CHECK_SILVER_STATUS",
+                            "type": "WebActivity",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "method": "GET",
+                                "url": {
+                                    "value": "@concat(\n  'https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates/',\n  activity('ACT_SILVER_REFRESH').output.update_id\n)",
+                                    "type": "Expression"
+                                },
+                                "authentication": {
+                                    "type": "MSI",
+                                    "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                                }
+                            }
+                        },
+                        {
+                            "name": "WAIT_SILVER_POLL",
+                            "type": "Wait",
+                            "dependsOn": [
+                                {
+                                    "activity": "ACT_CHECK_SILVER_STATUS",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "waitTimeInSeconds": 15
+                            }
+                        }
+                    ],
+                    "timeout": "0.00:30:00"
+                }
+            },
+            {
+                "name": "IF_SILVER_SUCCEEDED",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "UNTIL_SILVER_COMPLETE",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@equals(\n    activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n    'COMPLETED'\n)",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "FAIL_SILVER",
+                            "type": "Fail",
+                            "dependsOn": [],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "message": "ShopSphere orchestration failed at silver. Check Databricks and ADF run logs.",
+                                "errorCode": "SHOPSPHERE_PIPELINE_FAILED"
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "ACT_CDF_MERGE",
+                            "type": "DatabricksJob",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "jobId": "367074928728508"
+                            },
+                            "linkedServiceName": {
+                                "referenceName": "LS_DATABRICKS_SHOPSPHERE",
+                                "type": "LinkedServiceReference"
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "UNTIL_GOLD_COMPLETE",
+                "type": "Until",
+                "dependsOn": [
+                    {
+                        "activity": "ACT_GOLD_REFRESH",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@or(\n    equals(\n        activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n        'COMPLETED'\n    ),\n    or(\n        equals(\n            activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n            'FAILED'\n        ),\n        equals(\n            activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n            'CANCELED'\n        )\n    )\n)",
+                        "type": "Expression"
+                    },
+                    "activities": [
+                        {
+                            "name": "ACT_CHECK_GOLD_STATUS",
+                            "type": "WebActivity",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "method": "GET",
+                                "url": {
+                                    "value": "@concat(\n  'https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates/',\n  activity('ACT_GOLD_REFRESH').output.update_id\n)",
+                                    "type": "Expression"
+                                },
+                                "authentication": {
+                                    "type": "MSI",
+                                    "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                                }
+                            }
+                        },
+                        {
+                            "name": "WAIT_GOLD_POLL",
+                            "type": "Wait",
+                            "dependsOn": [
+                                {
+                                    "activity": "ACT_CHECK_GOLD_STATUS",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "waitTimeInSeconds": 15
+                            }
+                        }
+                    ],
+                    "timeout": "0.00:30:00"
+                }
+            },
+            {
+                "name": "ACT_GOLD_SUCCEDED",
+                "type": "IfCondition",
+                "dependsOn": [
+                    {
+                        "activity": "UNTIL_GOLD_COMPLETE",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@equals(\n    activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n    'COMPLETED'\n)",
+                        "type": "Expression"
+                    },
+                    "ifFalseActivities": [
+                        {
+                            "name": "FAIL_GOLD",
+                            "type": "Fail",
+                            "dependsOn": [],
+                            "userProperties": [],
+                            "typeProperties": {
+                                "message": "ShopSphere orchestration failed at silver. Check Databricks and ADF run logs.",
+                                "errorCode": "SHOPSPHERE_PIPELINE_FAILED"
+                            }
+                        }
+                    ],
+                    "ifTrueActivities": [
+                        {
+                            "name": "ACT_VALIDATE_OUTPUTS",
+                            "type": "DatabricksJob",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "userProperties": [],
+                            "typeProperties": {
+                                "jobId": "452399717762578"
+                            },
+                            "linkedServiceName": {
+                                "referenceName": "LS_DATABRICKS_SHOPSPHERE",
+                                "type": "LinkedServiceReference"
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "ACT_GOLD_REFRESH",
+                "description": "",
+                "type": "WebActivity",
+                "dependsOn": [
+                    {
+                        "activity": "IF_SILVER_SUCCEEDED",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "url": "https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates",
+                    "body": {
+                        "refresh_selection": [
+                            "adb_shopsphere_dev.gold.order_activity_by_status",
+                            "adb_shopsphere_dev.gold.customer_metrics",
+                            "adb_shopsphere_dev.gold.product_metrics"
+                        ]
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                    }
+                }
+            },
+            {
+                "name": "CDF_FAIL_HANDLING",
+                "type": "Fail",
+                "dependsOn": [
+                    {
+                        "activity": "IF_SILVER_SUCCEEDED",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "message": "CDF/MERGE failed; current_orders was not successfully updated.",
+                    "errorCode": "CDF/MERGE FAILED"
+                }
+            },
+            {
+                "name": "FAIL_VALIDATION",
+                "type": "Fail",
+                "dependsOn": [
+                    {
+                        "activity": "ACT_GOLD_SUCCEDED",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "message": "FAIL_VALIDATION",
+                    "errorCode": "FAIL_VALIDATION"
+                }
+            }
+        ],
+        "annotations": [],
+        "lastPublishTime": "2026-08-09T10:22:06Z"
+    },
+    "type": "Microsoft.DataFactory/factories/pipelines"
+}

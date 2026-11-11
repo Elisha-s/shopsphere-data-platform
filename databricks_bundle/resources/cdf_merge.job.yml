@@ -3,16 +3,21 @@ resources:
 
     shopsphere_cdf_merge:
       name: shopsphere_cdf_merge
+      timeout_seconds: 1800
 
+      # Lets Azure Data Factory's managed identity start this job.
       permissions:
-        - service_principal_name: fb2921f3-27f3-4d45-855d-6f2feacb5896
+        - service_principal_name: ${var.adf_service_principal_id}
           level: CAN_MANAGE_RUN
 
       tasks:
         - task_key: merge_current_orders
+          # Safe to retry: the merge is idempotent (see jobs/cdf_merge.py).
+          max_retries: 1
           python_wheel_task:
             package_name: shopsphere_data_platform
             entry_point: cdf-merge
+            parameters: ["--catalog", "${var.catalog}"]
 
           environment_key: default
 

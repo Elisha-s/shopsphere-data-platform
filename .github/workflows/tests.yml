@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  pytest:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,9 +20,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run tests
-        run: pytest legacy/local_spark_v1/tests -v
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Fast tests (transformations, generator, streaming stages)
+        run: pytest -v
+
+      - name: Cache Spark libraries (Delta)
+        uses: actions/cache@v4
+        with:
+          path: ~/.ivy2
+          key: ivy-delta-3.2.0-spark-3.5.6
+
+      - name: End-to-end test on Delta tables
+        run: pytest -m delta -v
+
+      - name: ADF pipeline definition is valid JSON
+        run: python -m json.tool orchestration/adf/PL_SHOPSPHERE_MEDALLION.json > /dev/null

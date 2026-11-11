@@ -1,15 +1,12 @@
-chispa==0.12.0
-delta-spark==3.2.0
-importlib_metadata==9.0.0
-iniconfig==2.3.0
-kafka-python==3.0.8
-packaging==26.2
-pluggy==1.6.0
-prettytable==3.18.0
-py4j==0.10.9.7
-Pygments==2.20.0
+# Runtime for the local pipeline and the event generator, plus test tools.
+# (On Databricks, Spark and Delta come from the platform; see databricks_bundle/.)
 pyspark==3.5.6
+delta-spark==3.2.0
+kafka-python==3.0.8
+python-dotenv==1.1.1
+
 pytest==9.1.1
-wcwidth==0.8.2
-zipp==4.1.0
-python-dotenv
+ruff==0.17.4
+
+# The shared transformation library and jobs, installed from this repository.
+-e ./databricks_bundle

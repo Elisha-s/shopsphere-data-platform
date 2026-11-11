@@ -1,29 +1,47 @@
-# The main pipeline for shopsphere_data_platform
+# The Lakeflow Declarative Pipeline: Bronze, Silver and Gold tables.
 
 resources:
   pipelines:
     shopsphere_data_platform_etl:
       name: shopsphere_data_platform_etl
       catalog: ${var.catalog}
-      schema: ${var.schema}
+      # Default schema for unqualified names. Every table in this project is
+      # declared with its full catalog.schema.table name, so this only decides
+      # where pipeline-internal objects go.
+      schema: bronze
       serverless: true
       root_path: "../src/shopsphere_data_platform_etl"
 
+      # Lets Azure Data Factory's managed identity start and poll updates.
+      permissions:
+        - service_principal_name: ${var.adf_service_principal_id}
+          level: CAN_RUN
+
+      # Values read by the transformation code with spark.conf.get(...).
       configuration:
         shopsphere.catalog: ${var.catalog}
-        shopsphere.eventhubs.namespace: "shopsphere-events-elisha"
+        shopsphere.eventhubs.namespace: ${var.eventhubs_namespace}
         shopsphere.eventhubs.topic: "orders"
         shopsphere.eventhubs.consumer_group: "databricks-shopstream"
         shopsphere.eventhubs.access_key_name: "shopsphere-databricks-consumer"
+        # Where the Event Hubs key is stored. The key itself is never in Git.
         shopsphere.eventhubs.secret_scope: "shopsphere-eventhubs"
         shopsphere.eventhubs.secret_key: "consumer-shared-access-key"
 
+      # Publish run history and data-quality results as a queryable table.
+      event_log:
+        catalog: ${var.catalog}
+        schema: bronze
+        name: pipeline_event_log
+
+      # Only files under transformations/ define pipeline tables. The shared
+      # logic in core/ is imported by them as an ordinary Python package.
       libraries:
         - glob:
             include: ../src/shopsphere_data_platform_etl/transformations/**
 
       environment:
         dependencies:
-          # We include every dependency defined by pyproject.toml by defining an editable environment
-          # that points to the folder where pyproject.toml is deployed.
+          # Installs this project (pyproject.toml) into the pipeline, which is
+          # what makes `shopsphere_data_platform_etl.core` importable.
           - --editable ${workspace.file_path}

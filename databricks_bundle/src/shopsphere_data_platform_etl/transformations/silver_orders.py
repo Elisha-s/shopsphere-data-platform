@@ -1,194 +1,40 @@
-# The Silver layer reads the Bronze Delta table incrementally as a Structured Streaming source. 
-# I flatten the nested event payload, standardize source strings such as event and order timestamps into Spark 
-# timestamp types, preserve Event Hubs metadata for lineage, and use event-time watermarking with event-ID 
-# deduplication to handle duplicate and late-arriving events. I apply Lakeflow data-quality expectations for 
-# required identifiers and positive order values. Valid records are written to the Silver orders table, while 
-# failing records are captured separately with explicit validation-error reasons. I also enable Delta Change 
-# Data Feed on Silver so downstream processing can consume only newly changed records.
+"""Silver: typed, de-duplicated orders, split into valid and quarantined.
+
+Both tables are built from the same de-duplicated stream and the same rule
+set (``core.quality.ORDER_RULES``), so every event ends up in exactly one of
+them. The validation job checks that this holds on every run.
+"""
 
 from pyspark import pipelines as dp
-from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
+
+from shopsphere_data_platform_etl.core.orders import deduplicate_events, flatten_orders
+from shopsphere_data_platform_etl.core.quality import ORDER_RULES, invalid_orders
+from shopsphere_data_platform_etl.core.tables import table_names
+
+TABLES = table_names(spark.conf.get("shopsphere.catalog"))
 
 
-CATALOG = spark.conf.get("shopsphere.catalog")
-
-BRONZE_ORDERS_TABLE = (
-    f"{CATALOG}.bronze.eventhub_order_events"
-)
-
-SILVER_ORDERS_TABLE = (
-    f"{CATALOG}.silver.orders"
-)
-
-INVALID_ORDERS_TABLE = (
-    f"{CATALOG}.silver.invalid_orders"
-)
-
-# This dictionary defines what ShopSphere considers a valid order.
-# This naming is useful because Lakeflow can report metrics against named expectations.
-ORDER_RULES = {
-    "event_id_not_null": "event_id IS NOT NULL",
-    "order_id_not_null": "order_id IS NOT NULL",
-    "customer_id_not_null": "customer_id IS NOT NULL",
-    "product_id_not_null": "product_id IS NOT NULL",
-    "event_timestamp_not_null": (
-        "event_timestamp IS NOT NULL"
-    ),
-    "positive_quantity": "quantity > 0",
-    "positive_unit_price": "unit_price > 0",
-    "positive_total_amount": "total_amount > 0",
-}
-
-
-VALID_ORDER_CONDITION = " AND ".join(
-    f"({condition})"
-    for condition in ORDER_RULES.values()
-)
-
-
-def flatten_orders() -> DataFrame:
-    """
-    Flatten Bronze event envelopes into typed order records.
-    """
-
-    return (
-        spark.readStream
-        .table(BRONZE_ORDERS_TABLE)
-        .select(
-            "event_id",
-            "event_type",
-            "event_version",
-            F.to_timestamp(
-                "event_timestamp"
-            ).alias("event_timestamp"),
-            F.to_timestamp(
-                "generated_at"
-            ).alias("generated_at"),
-            "is_late_event",
-            F.col(
-                "payload.order_id"
-            ).alias("order_id"),
-            F.col(
-                "payload.customer_id"
-            ).alias("customer_id"),
-            F.col(
-                "payload.product_id"
-            ).alias("product_id"),
-            F.col(
-                "payload.product_name"
-            ).alias("product_name"),
-            F.col(
-                "payload.category"
-            ).alias("category"),
-            F.col(
-                "payload.brand"
-            ).alias("brand"),
-            F.col(
-                "payload.quantity"
-            ).alias("quantity"),
-            F.col(
-                "payload.unit_price"
-            ).alias("unit_price"),
-            F.col(
-                "payload.total_amount"
-            ).alias("total_amount"),
-            F.col(
-                "payload.payment_method"
-            ).alias("payment_method"),
-            F.col(
-                "payload.order_status"
-            ).alias("order_status"),
-            F.col(
-                "payload.city"
-            ).alias("city"),
-            F.col(
-                "payload.state"
-            ).alias("state"),
-            F.col(
-                "payload.country"
-            ).alias("country"),
-            F.to_timestamp(
-                "payload.order_timestamp"
-            ).alias("order_timestamp"),
-            "message_key",
-            "kafka_topic",
-            "kafka_partition",
-            "kafka_offset",
-            "eventhub_enqueued_timestamp",
-            "ingestion_timestamp",
-        )
-        # How long are we willing to maintain streaming state for late-arriving event-time data?
-        .withWatermark(
-            "event_timestamp",
-            "1 day",
-        )
-        .dropDuplicates(["event_id"])
-    )
+def deduplicated_orders():
+    bronze_stream = spark.readStream.table(TABLES.bronze_events)
+    return deduplicate_events(flatten_orders(bronze_stream))
 
 
 @dp.table(
-    name=SILVER_ORDERS_TABLE,
-    comment=(
-        "Validated, flattened, and deduplicated ShopSphere orders."
-    ),
-    table_properties={ "delta.enableChangeDataFeed": "true" }
+    name=TABLES.silver_orders,
+    comment="Validated, flattened, de-duplicated order events. One row per event.",
+    # The change feed is what lets the CDF merge job read only new rows.
+    table_properties={"delta.enableChangeDataFeed": "true"},
 )
-@dp.expect_all_or_drop(ORDER_RULES) # This applies all the rules defined earlier and drops records failing validaion from the silver_orders table
-def silver_orders():
-    return flatten_orders()
-
+# Rows failing any rule are dropped from this table, and Lakeflow records how
+# many failed each named rule in the pipeline event log.
+@dp.expect_all_or_drop(ORDER_RULES)
+def orders():
+    return deduplicated_orders().drop("raw_json", "dedup_key")
 
 
 @dp.table(
-    name=INVALID_ORDERS_TABLE,
-    comment=(
-        "ShopSphere orders that failed Silver data-quality rules."
-    ),
+    name=TABLES.silver_invalid_orders,
+    comment="Quarantine: order events that failed a data-quality rule, with the reasons and the original JSON.",
 )
-def invalid_orders():
-    return (
-        flatten_orders()
-        .filter(
-            ~F.expr(VALID_ORDER_CONDITION)
-        )
-        .withColumn(
-            "validation_errors",
-            F.concat_ws(
-                ",",
-                F.when(
-                    F.col("event_id").isNull(),
-                    F.lit("missing_event_id"),
-                ),
-                F.when(
-                    F.col("order_id").isNull(),
-                    F.lit("missing_order_id"),
-                ),
-                F.when(
-                    F.col("customer_id").isNull(),
-                    F.lit("missing_customer_id"),
-                ),
-                F.when(
-                    F.col("product_id").isNull(),
-                    F.lit("missing_product_id"),
-                ),
-                F.when(
-                    F.col("event_timestamp").isNull(),
-                    F.lit("invalid_event_timestamp"),
-                ),
-                F.when(
-                    F.col("quantity") <= 0,
-                    F.lit("invalid_quantity"),
-                ),
-                F.when(
-                    F.col("unit_price") <= 0,
-                    F.lit("invalid_unit_price"),
-                ),
-                F.when(
-                    F.col("total_amount") <= 0,
-                    F.lit("invalid_total_amount"),
-                ),
-            ),
-        )
-    )
-
+def invalid_orders_table():
+    return invalid_orders(deduplicated_orders()).drop("dedup_key")

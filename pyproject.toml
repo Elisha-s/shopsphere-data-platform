@@ -1,0 +1,22 @@
+# Tooling configuration for the whole repository.
+# (The installable Databricks package has its own pyproject.toml in databricks_bundle/.)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "databricks_bundle/src"]
+# `pytest` runs the fast tests. `pytest -m delta` runs the end-to-end Delta test.
+addopts = "-m 'not delta'"
+markers = [
+    "delta: needs the Delta Lake libraries, which Spark downloads from Maven Central on first use",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = [".", "databricks_bundle/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["shopsphere_data_platform_etl", "local_pipeline", "ingestion", "tests"]

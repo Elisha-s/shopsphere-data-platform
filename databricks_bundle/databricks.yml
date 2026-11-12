@@ -1,5 +1,8 @@
-# This is a Declarative Automation Bundle definition for shopsphere_data_platform.
-# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+# Declarative Automation Bundle for the ShopSphere data platform.
+# https://docs.databricks.com/dev-tools/bundles/index.html
+#
+# The workspace is not written here. Point the CLI at one with a profile:
+#   databricks bundle deploy -t dev --profile <your-profile>
 bundle:
   name: shopsphere_data_platform
   uuid: cb64147f-9f8a-41d3-913e-8e148c1375ba
@@ -12,35 +15,37 @@ artifacts:
     type: whl
     build: uv build --wheel
 
-# Variable declarations. These variables are assigned in the dev/prod targets below.
 variables:
   catalog:
-    description: The catalog to use
-  schema:
-    description: The schema to use
+    description: >-
+      Unity Catalog catalog that holds the bronze, silver, gold and metadata
+      schemas. Dev and prod are separated by using a different catalog each.
+  eventhubs_namespace:
+    description: Azure Event Hubs namespace (the part before .servicebus.windows.net).
+    default: shopsphere-events
+  adf_service_principal_id:
+    description: >-
+      Application (client) ID of the Azure Data Factory managed identity. It is
+      granted permission to run the two jobs. Pass it at deploy time:
+      --var adf_service_principal_id=<id>
 
 targets:
   dev:
-    # The default target uses 'mode: development' to create a development copy.
-    # - Deployed resources get prefixed with '[dev my_user_name]'
-    # - Any job schedules and triggers are paused by default.
-    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
+    # 'mode: development' prefixes job and pipeline names with '[dev <user>]'
+    # and pauses schedules. It does not rename tables: isolation between
+    # environments comes from the catalog below.
     mode: development
     default: true
-    workspace:
-      host: https://adb-7405616524873712.12.azuredatabricks.net
     variables:
       catalog: adb_shopsphere_dev
-      schema: bronze
+
   prod:
     mode: production
     workspace:
-      host: https://adb-7405616524873712.12.azuredatabricks.net
-      # We explicitly deploy to /Workspace/Users/elisha.singh@outlook.com to make sure we only have a single copy.
-      root_path: /Workspace/Users/elisha.singh@outlook.com/.bundle/${bundle.name}/${bundle.target}
+      # One fixed location, so there is only ever a single production copy.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
     variables:
-      catalog: adb_shopsphere_dev
-      schema: prod
+      catalog: adb_shopsphere_prod
     permissions:
-      - user_name: elisha.singh@outlook.com
+      - user_name: ${workspace.current_user.userName}
         level: CAN_MANAGE

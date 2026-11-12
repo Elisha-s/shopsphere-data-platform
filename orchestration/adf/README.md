@@ -1,30 +1,63 @@
-# ADF Orchestration
+# ADF orchestration
 
-`PL_SHOPSPHERE_MEDALLION` orchestrates the Databricks medallion pipeline end-to-end:
+`PL_SHOPSPHERE_MEDALLION.json` runs the Azure pipeline end to end:
 
-Bronze refresh → Silver refresh → CDF merge → Gold refresh → Validation
+```text
+Bronze refresh -> Silver refresh -> CDF merge job -> Gold refresh -> Validation job
+```
 
-## Why two different Databricks activity types
+## Why the pipeline is refreshed in three parts
 
-- **Lakeflow pipeline refreshes (Bronze/Silver/Gold)** use `WebActivity` calling the
-  Lakeflow Pipelines REST API (`POST /api/2.0/pipelines/{id}/updates`), followed by an
-  `Until` loop that polls `GET /updates/{update_id}` every 15 seconds until the update
-  reaches a terminal state. This exists because ADF has no native activity type that
-  waits on a Lakeflow Declarative Pipeline update — only WebActivity can call the API.
-- **`cdf_merge` and `validate_outputs`** use the native `DatabricksJob` activity, because
-  they're regular Databricks Jobs (Python wheel tasks), and ADF can track job-run
-  completion natively without a manual poll loop.
+`silver.current_orders` is written by the CDF merge job, outside the Lakeflow
+pipeline, and the Gold materialized views read it. The merge must therefore
+run after Silver and before Gold. Each refresh uses `refresh_selection` to
+update only that layer's tables.
+
+## Two kinds of activity
+
+- **Pipeline refreshes** (Bronze, Silver, Gold) use a `WebActivity` that calls
+  the Lakeflow REST API (`POST /api/2.0/pipelines/{id}/updates`), then an
+  `Until` loop that polls `GET .../updates/{update_id}` every 15 seconds until
+  the state is `COMPLETED`, `FAILED` or `CANCELED`. Data Factory has no native
+  activity that waits for a Lakeflow pipeline update.
+- **`shopsphere_cdf_merge` and `shopsphere_validation`** use the native
+  `DatabricksJob` activity, which waits for the job run by itself.
+
+Authentication is the factory's managed identity in both cases; there is no
+token in the definition.
 
 ## Failure handling
 
-Each stage (`Bronze`, `Silver`, `CDF/MERGE`, `Validation`) has its own `Fail` activity with
-a distinct error code, so a failed run points directly at the stage that broke rather than
-a generic pipeline failure.
+Every stage has its own `Fail` activity and error code, attached directly to
+the activity that can fail:
 
-## Known gaps (not yet addressed)
+| Stage | Wrong final state | Timed out / status unreadable |
+|---|---|---|
+| Bronze | `SHOPSPHERE_BRONZE_FAILED` | `SHOPSPHERE_BRONZE_TIMEOUT` |
+| Silver | `SHOPSPHERE_SILVER_FAILED` | `SHOPSPHERE_SILVER_TIMEOUT` |
+| CDF merge | `SHOPSPHERE_CDF_MERGE_FAILED` | |
+| Gold | `SHOPSPHERE_GOLD_FAILED` | `SHOPSPHERE_GOLD_TIMEOUT` |
+| Validation | `SHOPSPHERE_VALIDATION_FAILED` | |
 
-- Workspace URL, pipeline ID, and job IDs are hardcoded rather than parameterized via
-  ADF global parameters — fine for a single-environment portfolio project, would need
-  parameterization for dev/prod in production.
-- No trigger is currently attached (manual run only) and no failure notification
-  (Teams/email) fires on the `Fail` activities.
+Status polls are retried three times, because they are read-only. The `POST`
+that starts a refresh is not retried, because a second start while the first
+is running would be rejected.
+
+## Parameters
+
+Nothing environment-specific is hardcoded:
+
+| Parameter | Meaning |
+|---|---|
+| `databricksWorkspaceUrl` | Workspace URL, no trailing slash |
+| `pipelineId` | Lakeflow pipeline ID |
+| `cdfMergeJobId`, `validationJobId` | Databricks job IDs |
+| `catalog` | Unity Catalog catalog (`adb_shopsphere_dev` or `adb_shopsphere_prod`) |
+
+The pipeline expects a linked service named `LS_DATABRICKS_SHOPSPHERE`.
+Setup steps are in [`docs/deployment.md`](../../docs/deployment.md).
+
+## Known gaps
+
+- No trigger is attached; runs are manual.
+- No notification is sent when a `Fail` activity fires.

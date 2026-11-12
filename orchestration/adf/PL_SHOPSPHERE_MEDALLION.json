@@ -7,7 +7,7 @@
                 "type": "WebActivity",
                 "dependsOn": [],
                 "policy": {
-                    "timeout": "0.12:00:00",
+                    "timeout": "0.00:30:00",
                     "retry": 0,
                     "retryIntervalInSeconds": 30,
                     "secureOutput": false,
@@ -19,11 +19,13 @@
                     "headers": {
                         "Content-Type": "application/json"
                     },
-                    "url": "https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates",
+                    "url": {
+                        "value": "@concat(pipeline().parameters.databricksWorkspaceUrl, '/api/2.0/pipelines/', pipeline().parameters.pipelineId, '/updates')",
+                        "type": "Expression"
+                    },
                     "body": {
-                        "refresh_selection": [
-                            "adb_shopsphere_dev.bronze.eventhub_order_events"
-                        ]
+                        "value": "@json(concat('{\"refresh_selection\": ', string(createArray(concat(pipeline().parameters.catalog, '.bronze.order_events'))), '}'))",
+                        "type": "Expression"
                     },
                     "authentication": {
                         "type": "MSI",
@@ -45,7 +47,7 @@
                 "userProperties": [],
                 "typeProperties": {
                     "expression": {
-                        "value": "@or(\n    equals(\n        activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n        'COMPLETED'\n    ),\n    or(\n        equals(\n            activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n            'FAILED'\n        ),\n        equals(\n            activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n            'CANCELED'\n        )\n    )\n)",
+                        "value": "@or(equals(activity('ACT_CHECK_BRONZE_STATUS').output.update.state, 'COMPLETED'), or(equals(activity('ACT_CHECK_BRONZE_STATUS').output.update.state, 'FAILED'), equals(activity('ACT_CHECK_BRONZE_STATUS').output.update.state, 'CANCELED')))",
                         "type": "Expression"
                     },
                     "activities": [
@@ -54,8 +56,8 @@
                             "type": "WebActivity",
                             "dependsOn": [],
                             "policy": {
-                                "timeout": "0.12:00:00",
-                                "retry": 0,
+                                "timeout": "0.00:30:00",
+                                "retry": 3,
                                 "retryIntervalInSeconds": 30,
                                 "secureOutput": false,
                                 "secureInput": false
@@ -64,7 +66,7 @@
                             "typeProperties": {
                                 "method": "GET",
                                 "url": {
-                                    "value": "@concat(\n  'https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates/',\n  activity('ACT_BRONZE_REFRESH').output.update_id\n)",
+                                    "value": "@concat(pipeline().parameters.databricksWorkspaceUrl, '/api/2.0/pipelines/', pipeline().parameters.pipelineId, '/updates/', activity('ACT_BRONZE_REFRESH').output.update_id)",
                                     "type": "Expression"
                                 },
                                 "authentication": {
@@ -107,7 +109,7 @@
                 "userProperties": [],
                 "typeProperties": {
                     "expression": {
-                        "value": "@equals(\n    activity('ACT_CHECK_BRONZE_STATUS').output.update.state,\n    'COMPLETED'\n)",
+                        "value": "@equals(activity('ACT_CHECK_BRONZE_STATUS').output.update.state, 'COMPLETED')",
                         "type": "Expression"
                     },
                     "ifFalseActivities": [
@@ -117,49 +119,36 @@
                             "dependsOn": [],
                             "userProperties": [],
                             "typeProperties": {
-                                "message": "ShopSphere orchestration failed at bronze. Check Databricks and ADF run logs.",
-                                "errorCode": "SHOPSPHERE_PIPELINE_FAILED"
-                            }
-                        }
-                    ],
-                    "ifTrueActivities": [
-                        {
-                            "name": "ACT_SILVER_REFRESH",
-                            "description": "",
-                            "type": "WebActivity",
-                            "dependsOn": [],
-                            "policy": {
-                                "timeout": "0.00:30:00",
-                                "retry": 2,
-                                "retryIntervalInSeconds": 30,
-                                "secureOutput": false,
-                                "secureInput": false
-                            },
-                            "userProperties": [],
-                            "typeProperties": {
-                                "method": "POST",
-                                "headers": {
-                                    "Content-Type": "application/json"
+                                "message": {
+                                    "value": "@concat('ShopSphere Bronze refresh ended in state ', activity('ACT_CHECK_BRONZE_STATUS').output.update.state, '. Open the pipeline update in Databricks for the error.')",
+                                    "type": "Expression"
                                 },
-                                "url": "https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates",
-                                "body": {
-                                    "refresh_selection": [
-                                        "adb_shopsphere_dev.silver.orders",
-                                        "adb_shopsphere_dev.silver.invalid_orders"
-                                    ]
-                                },
-                                "authentication": {
-                                    "type": "MSI",
-                                    "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
-                                }
+                                "errorCode": "SHOPSPHERE_BRONZE_FAILED"
                             }
                         }
                     ]
                 }
             },
             {
-                "name": "UNTIL_SILVER_COMPLETE",
-                "type": "Until",
+                "name": "FAIL_BRONZE_TIMEOUT",
+                "type": "Fail",
+                "dependsOn": [
+                    {
+                        "activity": "UNTIL_BRONZE_COMPLETE",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "message": "ShopSphere Bronze refresh did not finish within 30 minutes, or its status could not be read.",
+                    "errorCode": "SHOPSPHERE_BRONZE_TIMEOUT"
+                }
+            },
+            {
+                "name": "ACT_SILVER_REFRESH",
+                "type": "WebActivity",
                 "dependsOn": [
                     {
                         "activity": "IF_BRONZE_SUCCEEDED",
@@ -168,10 +157,48 @@
                         ]
                     }
                 ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "url": {
+                        "value": "@concat(pipeline().parameters.databricksWorkspaceUrl, '/api/2.0/pipelines/', pipeline().parameters.pipelineId, '/updates')",
+                        "type": "Expression"
+                    },
+                    "body": {
+                        "value": "@json(concat('{\"refresh_selection\": ', string(createArray(concat(pipeline().parameters.catalog, '.silver.orders'), concat(pipeline().parameters.catalog, '.silver.invalid_orders'))), '}'))",
+                        "type": "Expression"
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                    }
+                }
+            },
+            {
+                "name": "UNTIL_SILVER_COMPLETE",
+                "type": "Until",
+                "dependsOn": [
+                    {
+                        "activity": "ACT_SILVER_REFRESH",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
                 "userProperties": [],
                 "typeProperties": {
                     "expression": {
-                        "value": "@or(\n    equals(\n        activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n        'COMPLETED'\n    ),\n    or(\n        equals(\n            activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n            'FAILED'\n        ),\n        equals(\n            activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n            'CANCELED'\n        )\n    )\n)",
+                        "value": "@or(equals(activity('ACT_CHECK_SILVER_STATUS').output.update.state, 'COMPLETED'), or(equals(activity('ACT_CHECK_SILVER_STATUS').output.update.state, 'FAILED'), equals(activity('ACT_CHECK_SILVER_STATUS').output.update.state, 'CANCELED')))",
                         "type": "Expression"
                     },
                     "activities": [
@@ -180,8 +207,8 @@
                             "type": "WebActivity",
                             "dependsOn": [],
                             "policy": {
-                                "timeout": "0.12:00:00",
-                                "retry": 0,
+                                "timeout": "0.00:30:00",
+                                "retry": 3,
                                 "retryIntervalInSeconds": 30,
                                 "secureOutput": false,
                                 "secureInput": false
@@ -190,7 +217,7 @@
                             "typeProperties": {
                                 "method": "GET",
                                 "url": {
-                                    "value": "@concat(\n  'https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates/',\n  activity('ACT_SILVER_REFRESH').output.update_id\n)",
+                                    "value": "@concat(pipeline().parameters.databricksWorkspaceUrl, '/api/2.0/pipelines/', pipeline().parameters.pipelineId, '/updates/', activity('ACT_SILVER_REFRESH').output.update_id)",
                                     "type": "Expression"
                                 },
                                 "authentication": {
@@ -233,7 +260,7 @@
                 "userProperties": [],
                 "typeProperties": {
                     "expression": {
-                        "value": "@equals(\n    activity('ACT_CHECK_SILVER_STATUS').output.update.state,\n    'COMPLETED'\n)",
+                        "value": "@equals(activity('ACT_CHECK_SILVER_STATUS').output.update.state, 'COMPLETED')",
                         "type": "Expression"
                     },
                     "ifFalseActivities": [
@@ -243,33 +270,116 @@
                             "dependsOn": [],
                             "userProperties": [],
                             "typeProperties": {
-                                "message": "ShopSphere orchestration failed at silver. Check Databricks and ADF run logs.",
-                                "errorCode": "SHOPSPHERE_PIPELINE_FAILED"
-                            }
-                        }
-                    ],
-                    "ifTrueActivities": [
-                        {
-                            "name": "ACT_CDF_MERGE",
-                            "type": "DatabricksJob",
-                            "dependsOn": [],
-                            "policy": {
-                                "timeout": "0.12:00:00",
-                                "retry": 0,
-                                "retryIntervalInSeconds": 30,
-                                "secureOutput": false,
-                                "secureInput": false
-                            },
-                            "userProperties": [],
-                            "typeProperties": {
-                                "jobId": "367074928728508"
-                            },
-                            "linkedServiceName": {
-                                "referenceName": "LS_DATABRICKS_SHOPSPHERE",
-                                "type": "LinkedServiceReference"
+                                "message": {
+                                    "value": "@concat('ShopSphere Silver refresh ended in state ', activity('ACT_CHECK_SILVER_STATUS').output.update.state, '. Open the pipeline update in Databricks for the error.')",
+                                    "type": "Expression"
+                                },
+                                "errorCode": "SHOPSPHERE_SILVER_FAILED"
                             }
                         }
                     ]
+                }
+            },
+            {
+                "name": "FAIL_SILVER_TIMEOUT",
+                "type": "Fail",
+                "dependsOn": [
+                    {
+                        "activity": "UNTIL_SILVER_COMPLETE",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "message": "ShopSphere Silver refresh did not finish within 30 minutes, or its status could not be read.",
+                    "errorCode": "SHOPSPHERE_SILVER_TIMEOUT"
+                }
+            },
+            {
+                "name": "ACT_CDF_MERGE",
+                "type": "DatabricksJob",
+                "dependsOn": [
+                    {
+                        "activity": "IF_SILVER_SUCCEEDED",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.01:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "jobId": {
+                        "value": "@pipeline().parameters.cdfMergeJobId",
+                        "type": "Expression"
+                    }
+                },
+                "linkedServiceName": {
+                    "referenceName": "LS_DATABRICKS_SHOPSPHERE",
+                    "type": "LinkedServiceReference"
+                }
+            },
+            {
+                "name": "FAIL_CDF_MERGE",
+                "type": "Fail",
+                "dependsOn": [
+                    {
+                        "activity": "ACT_CDF_MERGE",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "message": "ShopSphere CDF merge job failed. Open the job run in Databricks for the error.",
+                    "errorCode": "SHOPSPHERE_CDF_MERGE_FAILED"
+                }
+            },
+            {
+                "name": "ACT_GOLD_REFRESH",
+                "type": "WebActivity",
+                "dependsOn": [
+                    {
+                        "activity": "ACT_CDF_MERGE",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.00:30:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "userProperties": [],
+                "typeProperties": {
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "url": {
+                        "value": "@concat(pipeline().parameters.databricksWorkspaceUrl, '/api/2.0/pipelines/', pipeline().parameters.pipelineId, '/updates')",
+                        "type": "Expression"
+                    },
+                    "body": {
+                        "value": "@json(concat('{\"refresh_selection\": ', string(createArray(concat(pipeline().parameters.catalog, '.gold.order_activity_by_status'), concat(pipeline().parameters.catalog, '.gold.customer_metrics'), concat(pipeline().parameters.catalog, '.gold.product_metrics'))), '}'))",
+                        "type": "Expression"
+                    },
+                    "authentication": {
+                        "type": "MSI",
+                        "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                    }
                 }
             },
             {
@@ -286,7 +396,7 @@
                 "userProperties": [],
                 "typeProperties": {
                     "expression": {
-                        "value": "@or(\n    equals(\n        activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n        'COMPLETED'\n    ),\n    or(\n        equals(\n            activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n            'FAILED'\n        ),\n        equals(\n            activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n            'CANCELED'\n        )\n    )\n)",
+                        "value": "@or(equals(activity('ACT_CHECK_GOLD_STATUS').output.update.state, 'COMPLETED'), or(equals(activity('ACT_CHECK_GOLD_STATUS').output.update.state, 'FAILED'), equals(activity('ACT_CHECK_GOLD_STATUS').output.update.state, 'CANCELED')))",
                         "type": "Expression"
                     },
                     "activities": [
@@ -295,8 +405,8 @@
                             "type": "WebActivity",
                             "dependsOn": [],
                             "policy": {
-                                "timeout": "0.12:00:00",
-                                "retry": 0,
+                                "timeout": "0.00:30:00",
+                                "retry": 3,
                                 "retryIntervalInSeconds": 30,
                                 "secureOutput": false,
                                 "secureInput": false
@@ -305,7 +415,7 @@
                             "typeProperties": {
                                 "method": "GET",
                                 "url": {
-                                    "value": "@concat(\n  'https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates/',\n  activity('ACT_GOLD_REFRESH').output.update_id\n)",
+                                    "value": "@concat(pipeline().parameters.databricksWorkspaceUrl, '/api/2.0/pipelines/', pipeline().parameters.pipelineId, '/updates/', activity('ACT_GOLD_REFRESH').output.update_id)",
                                     "type": "Expression"
                                 },
                                 "authentication": {
@@ -335,7 +445,7 @@
                 }
             },
             {
-                "name": "ACT_GOLD_SUCCEDED",
+                "name": "IF_GOLD_SUCCEEDED",
                 "type": "IfCondition",
                 "dependsOn": [
                     {
@@ -348,7 +458,7 @@
                 "userProperties": [],
                 "typeProperties": {
                     "expression": {
-                        "value": "@equals(\n    activity('ACT_CHECK_GOLD_STATUS').output.update.state,\n    'COMPLETED'\n)",
+                        "value": "@equals(activity('ACT_CHECK_GOLD_STATUS').output.update.state, 'COMPLETED')",
                         "type": "Expression"
                     },
                     "ifFalseActivities": [
@@ -358,49 +468,46 @@
                             "dependsOn": [],
                             "userProperties": [],
                             "typeProperties": {
-                                "message": "ShopSphere orchestration failed at silver. Check Databricks and ADF run logs.",
-                                "errorCode": "SHOPSPHERE_PIPELINE_FAILED"
-                            }
-                        }
-                    ],
-                    "ifTrueActivities": [
-                        {
-                            "name": "ACT_VALIDATE_OUTPUTS",
-                            "type": "DatabricksJob",
-                            "dependsOn": [],
-                            "policy": {
-                                "timeout": "0.12:00:00",
-                                "retry": 0,
-                                "retryIntervalInSeconds": 30,
-                                "secureOutput": false,
-                                "secureInput": false
-                            },
-                            "userProperties": [],
-                            "typeProperties": {
-                                "jobId": "452399717762578"
-                            },
-                            "linkedServiceName": {
-                                "referenceName": "LS_DATABRICKS_SHOPSPHERE",
-                                "type": "LinkedServiceReference"
+                                "message": {
+                                    "value": "@concat('ShopSphere Gold refresh ended in state ', activity('ACT_CHECK_GOLD_STATUS').output.update.state, '. Open the pipeline update in Databricks for the error.')",
+                                    "type": "Expression"
+                                },
+                                "errorCode": "SHOPSPHERE_GOLD_FAILED"
                             }
                         }
                     ]
                 }
             },
             {
-                "name": "ACT_GOLD_REFRESH",
-                "description": "",
-                "type": "WebActivity",
+                "name": "FAIL_GOLD_TIMEOUT",
+                "type": "Fail",
                 "dependsOn": [
                     {
-                        "activity": "IF_SILVER_SUCCEEDED",
+                        "activity": "UNTIL_GOLD_COMPLETE",
+                        "dependencyConditions": [
+                            "Failed"
+                        ]
+                    }
+                ],
+                "userProperties": [],
+                "typeProperties": {
+                    "message": "ShopSphere Gold refresh did not finish within 30 minutes, or its status could not be read.",
+                    "errorCode": "SHOPSPHERE_GOLD_TIMEOUT"
+                }
+            },
+            {
+                "name": "ACT_VALIDATE_OUTPUTS",
+                "type": "DatabricksJob",
+                "dependsOn": [
+                    {
+                        "activity": "IF_GOLD_SUCCEEDED",
                         "dependencyConditions": [
                             "Succeeded"
                         ]
                     }
                 ],
                 "policy": {
-                    "timeout": "0.12:00:00",
+                    "timeout": "0.01:00:00",
                     "retry": 0,
                     "retryIntervalInSeconds": 30,
                     "secureOutput": false,
@@ -408,36 +515,14 @@
                 },
                 "userProperties": [],
                 "typeProperties": {
-                    "method": "POST",
-                    "url": "https://adb-7405616524873712.12.azuredatabricks.net/api/2.0/pipelines/63b2e948-6c14-45d3-a5e4-9cef6c630bd8/updates",
-                    "body": {
-                        "refresh_selection": [
-                            "adb_shopsphere_dev.gold.order_activity_by_status",
-                            "adb_shopsphere_dev.gold.customer_metrics",
-                            "adb_shopsphere_dev.gold.product_metrics"
-                        ]
-                    },
-                    "authentication": {
-                        "type": "MSI",
-                        "resource": "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+                    "jobId": {
+                        "value": "@pipeline().parameters.validationJobId",
+                        "type": "Expression"
                     }
-                }
-            },
-            {
-                "name": "CDF_FAIL_HANDLING",
-                "type": "Fail",
-                "dependsOn": [
-                    {
-                        "activity": "IF_SILVER_SUCCEEDED",
-                        "dependencyConditions": [
-                            "Failed"
-                        ]
-                    }
-                ],
-                "userProperties": [],
-                "typeProperties": {
-                    "message": "CDF/MERGE failed; current_orders was not successfully updated.",
-                    "errorCode": "CDF/MERGE FAILED"
+                },
+                "linkedServiceName": {
+                    "referenceName": "LS_DATABRICKS_SHOPSPHERE",
+                    "type": "LinkedServiceReference"
                 }
             },
             {
@@ -445,7 +530,7 @@
                 "type": "Fail",
                 "dependsOn": [
                     {
-                        "activity": "ACT_GOLD_SUCCEDED",
+                        "activity": "ACT_VALIDATE_OUTPUTS",
                         "dependencyConditions": [
                             "Failed"
                         ]
@@ -453,13 +538,34 @@
                 ],
                 "userProperties": [],
                 "typeProperties": {
-                    "message": "FAIL_VALIDATION",
-                    "errorCode": "FAIL_VALIDATION"
+                    "message": "ShopSphere validation job failed. Open the job run in Databricks for the error.",
+                    "errorCode": "SHOPSPHERE_VALIDATION_FAILED"
                 }
             }
         ],
         "annotations": [],
-        "lastPublishTime": "2026-08-09T10:22:06Z"
+        "parameters": {
+            "databricksWorkspaceUrl": {
+                "type": "string",
+                "defaultValue": "https://adb-0000000000000000.0.azuredatabricks.net"
+            },
+            "pipelineId": {
+                "type": "string",
+                "defaultValue": "00000000-0000-0000-0000-000000000000"
+            },
+            "cdfMergeJobId": {
+                "type": "string",
+                "defaultValue": "0"
+            },
+            "validationJobId": {
+                "type": "string",
+                "defaultValue": "0"
+            },
+            "catalog": {
+                "type": "string",
+                "defaultValue": "adb_shopsphere_dev"
+            }
+        }
     },
     "type": "Microsoft.DataFactory/factories/pipelines"
 }

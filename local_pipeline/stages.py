@@ -42,6 +42,21 @@ def _write_stream_to_table(stream: DataFrame, table: str, checkpoint: str) -> No
     query.awaitTermination()
 
 
+def _replace_table_contents(spark: SparkSession, df: DataFrame, table: str) -> None:
+    """Create ``table`` from ``df``, or replace all of its rows if it exists.
+
+    ``df.write.mode("overwrite").saveAsTable(...)`` is not used: with Spark
+    3.5.6 and Delta 3.2.0 it takes a "replace table" path that Delta rejects
+    ("does not support truncate in batch mode"). Creating the table once and
+    then overwriting its rows (INSERT OVERWRITE) avoids that path, and it
+    also keeps the table's history instead of recreating the table each run.
+    """
+    if spark.catalog.tableExists(table):
+        df.write.mode("overwrite").insertInto(table)
+    else:
+        df.write.saveAsTable(table)
+
+
 # ----------------------------------------------------------------------
 # Sources
 # ----------------------------------------------------------------------
@@ -119,8 +134,8 @@ def run_gold(spark: SparkSession, tables: Tables, config: LocalConfig) -> None:
 
     # The local equivalent of a materialized view: recompute and replace.
     current_orders = spark.table(tables.silver_current_orders)
-    metrics.customer_metrics(current_orders).write.mode("overwrite").saveAsTable(tables.gold_customer_metrics)
-    metrics.product_metrics(current_orders).write.mode("overwrite").saveAsTable(tables.gold_product_metrics)
+    _replace_table_contents(spark, metrics.customer_metrics(current_orders), tables.gold_customer_metrics)
+    _replace_table_contents(spark, metrics.product_metrics(current_orders), tables.gold_product_metrics)
 
 
 def run_validation(spark: SparkSession, tables: Tables) -> list[dict]:

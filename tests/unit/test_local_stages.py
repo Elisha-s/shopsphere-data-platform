@@ -53,6 +53,7 @@ def test_stages_reconcile_with_what_the_generator_injected(spark, tmp_path):
     latest_change_per_order(as_changes).write.mode("overwrite").saveAsTable(tables.silver_current_orders)
 
     stages.run_gold(spark, tables, config)
+    stages.run_gold(spark, tables, config)  # second refresh replaces the rows of the existing tables
     checks = stages.run_validation(spark, tables)  # raises if any check fails
     assert all(check["passed"] for check in checks)
 

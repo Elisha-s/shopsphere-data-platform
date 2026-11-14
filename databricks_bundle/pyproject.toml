@@ -44,5 +44,6 @@ select = ["E", "F", "I", "UP", "B"]
 known-first-party = ["shopsphere_data_platform_etl"]
 
 [tool.ruff.lint.per-file-ignores]
-# Lakeflow injects `spark` and `dbutils` into pipeline source files.
-"src/shopsphere_data_platform_etl/transformations/*.py" = ["F821"]
+# Lakeflow injects `spark` and `dbutils` into pipeline source files, and the
+# files extend sys.path before importing the project's own package.
+"src/shopsphere_data_platform_etl/transformations/*.py" = ["F821", "E402"]

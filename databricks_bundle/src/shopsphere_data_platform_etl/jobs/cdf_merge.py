@@ -5,9 +5,19 @@ How it works
 1. ``silver.orders`` has Delta Change Data Feed (CDF) enabled, so every commit
    records which rows it added.
 2. A one-row state table remembers the last Delta version this job processed.
-3. Each run reads only the versions after that, keeps the newest event per
-   order, and MERGEs it into ``current_orders``.
+3. The first run in an environment has no saved version, so it reads a
+   snapshot of ``silver.orders`` as of its latest version. Every later run
+   reads only the versions after the saved one from the change feed, keeps
+   the newest event per order, and MERGEs it into ``current_orders``.
 4. The state is advanced only after the MERGE has succeeded.
+
+Why the first run reads a snapshot and not the change feed from version 0
+-------------------------------------------------------------------------
+The change feed can only be read from the version at which it was switched
+on. A Lakeflow pipeline creates the Silver table first and applies its table
+properties afterwards, so version 0 has no change data and reading from it
+fails with DELTA_MISSING_CHANGE_DATA. A snapshot does not depend on that, and
+the saved version marks exactly where the snapshot ended.
 
 Why a retry is safe
 -------------------
@@ -76,7 +86,7 @@ def save_last_processed_version(spark: SparkSession, tables: Tables, version: in
     )
 
 
-def run(spark: SparkSession, tables: Tables, initial_version: int = 0) -> dict:
+def run(spark: SparkSession, tables: Tables) -> dict:
     """Process every unprocessed version of silver.orders. Returns a summary."""
     ensure_state_table(spark, tables)
 
@@ -85,12 +95,8 @@ def run(spark: SparkSession, tables: Tables, initial_version: int = 0) -> dict:
     )
     last_processed = read_last_processed_version(spark, tables)
 
-    if last_processed is None:
-        # First run in this environment. The Silver table is created with CDF
-        # enabled, so its change feed is readable from its first version.
-        starting_version = initial_version
-    else:
-        starting_version = last_processed + 1
+    first_run = last_processed is None
+    starting_version = None if first_run else last_processed + 1
 
     if last_processed is not None and last_processed > latest_version:
         # The saved position is ahead of the table. That only happens when the
@@ -104,18 +110,27 @@ def run(spark: SparkSession, tables: Tables, initial_version: int = 0) -> dict:
             f"{tables.silver_current_orders} if it should be rebuilt), then run again."
         )
 
-    if starting_version > latest_version:
+    if not first_run and starting_version > latest_version:
         print("No new Delta versions to process.")
         return {"status": "up_to_date", "latest_version": latest_version}
 
-    print(f"Processing change feed versions {starting_version} to {latest_version}")
-
-    changes = (
-        spark.read.option("readChangeFeed", "true")
-        .option("startingVersion", starting_version)
-        .option("endingVersion", latest_version)
-        .table(tables.silver_orders)
-    )
+    if first_run:
+        print(f"First run: reading a snapshot of {tables.silver_orders} at version {latest_version}")
+        # Every row in a snapshot is a row that was inserted, so mark it as
+        # one. That lets the same reduction work for both kinds of input.
+        changes = (
+            spark.read.option("versionAsOf", latest_version)
+            .table(tables.silver_orders)
+            .withColumn("_change_type", F.lit("insert"))
+        )
+    else:
+        print(f"Processing change feed versions {starting_version} to {latest_version}")
+        changes = (
+            spark.read.option("readChangeFeed", "true")
+            .option("startingVersion", starting_version)
+            .option("endingVersion", latest_version)
+            .table(tables.silver_orders)
+        )
     latest_changes = latest_change_per_order(changes)
 
     if not spark.catalog.tableExists(tables.silver_current_orders):
@@ -138,6 +153,7 @@ def run(spark: SparkSession, tables: Tables, initial_version: int = 0) -> dict:
 
     return {
         "status": "merged",
+        "mode": "snapshot" if first_run else "change_feed",
         "starting_version": starting_version,
         "latest_version": latest_version,
     }
@@ -146,16 +162,10 @@ def run(spark: SparkSession, tables: Tables, initial_version: int = 0) -> dict:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Merge new silver.orders changes into silver.current_orders.")
     parser.add_argument("--catalog", default=None, help="Unity Catalog name. Omit for a local Spark session.")
-    parser.add_argument(
-        "--initial-version",
-        type=int,
-        default=0,
-        help="Delta version to start from when no state exists yet.",
-    )
     args = parser.parse_args(argv)
 
     spark = SparkSession.builder.getOrCreate()
-    run(spark, table_names(args.catalog), initial_version=args.initial_version)
+    run(spark, table_names(args.catalog))
 
 
 if __name__ == "__main__":

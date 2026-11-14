@@ -20,6 +20,8 @@ resources:
       # Values read by the transformation code with spark.conf.get(...).
       configuration:
         shopsphere.catalog: ${var.catalog}
+        # Folder added to the import path by the transformation files.
+        shopsphere.source_path: ${workspace.file_path}/src
         shopsphere.eventhubs.namespace: ${var.eventhubs_namespace}
         shopsphere.eventhubs.topic: "orders"
         shopsphere.eventhubs.consumer_group: "databricks-shopstream"
@@ -39,9 +41,3 @@ resources:
       libraries:
         - glob:
             include: ../src/shopsphere_data_platform_etl/transformations/**
-
-      environment:
-        dependencies:
-          # Installs this project (pyproject.toml) into the pipeline, which is
-          # what makes `shopsphere_data_platform_etl.core` importable.
-          - --editable ${workspace.file_path}

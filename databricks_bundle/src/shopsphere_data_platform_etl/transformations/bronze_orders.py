@@ -8,7 +8,14 @@ package so the local pipeline produces an identical Bronze table.
 ``spark`` and ``dbutils`` are provided by the Lakeflow runtime.
 """
 
+import sys
+
 from pyspark import pipelines as dp
+
+# The Lakeflow runtime does not put this project's src/ folder on the import
+# path, so `shopsphere_data_platform_etl` would not be found. The bundle passes
+# the folder in as a pipeline setting (see the pipeline resource file).
+sys.path.append(spark.conf.get("shopsphere.source_path"))
 
 from shopsphere_data_platform_etl.core.orders import kafka_to_transport, parse_events
 from shopsphere_data_platform_etl.core.tables import table_names

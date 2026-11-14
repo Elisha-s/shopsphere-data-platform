@@ -5,7 +5,14 @@ set (``core.quality.ORDER_RULES``), so every event ends up in exactly one of
 them. The validation job checks that this holds on every run.
 """
 
+import sys
+
 from pyspark import pipelines as dp
+
+# The Lakeflow runtime does not put this project's src/ folder on the import
+# path, so `shopsphere_data_platform_etl` would not be found. The bundle passes
+# the folder in as a pipeline setting (see the pipeline resource file).
+sys.path.append(spark.conf.get("shopsphere.source_path"))
 
 from shopsphere_data_platform_etl.core.orders import deduplicate_events, flatten_orders
 from shopsphere_data_platform_etl.core.quality import ORDER_RULES, invalid_orders

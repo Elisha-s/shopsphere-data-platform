@@ -76,7 +76,7 @@ def test_replaying_processed_versions_is_harmless(pipeline):
     before = {row["order_id"]: row["event_id"] for row in spark.table(tables.silver_current_orders).collect()}
 
     spark.sql(f"DELETE FROM {tables.pipeline_state} WHERE pipeline_name = '{cdf_merge.PIPELINE_NAME}'")
-    assert cdf_merge.run(spark, tables)["status"] == "merged"  # reprocesses from version 0
+    assert cdf_merge.run(spark, tables)["status"] == "merged"  # no saved position: reads a fresh snapshot
 
     after = {row["order_id"]: row["event_id"] for row in spark.table(tables.silver_current_orders).collect()}
     assert after == before

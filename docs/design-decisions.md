@@ -76,6 +76,12 @@ project is meant to show how incremental processing works underneath.
   MERGE only overwrites with a newer event.
 - **Idempotent:** the position is saved after the MERGE. A crash in between
   replays the same versions, and the guarded MERGE makes the replay a no-op.
+- **Starts from a snapshot:** with no saved position the job reads
+  `silver.orders` as of its latest version, then saves that version. It does
+  not ask for the change feed from version 0, because a table created by a
+  Lakeflow pipeline has its properties applied after it is created, so version 0
+  has no change data. The saved version is exactly where the snapshot ended, so
+  no change is read twice or skipped.
 - **Fails loudly:** if the saved position is ahead of the table (the table was
   recreated), the job stops with instructions instead of reporting "nothing
   new" forever.

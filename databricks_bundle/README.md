@@ -34,14 +34,16 @@ databricks_bundle/
   results.
 - **The wheel** packages `src/` so the two jobs can run `cdf-merge` and
   `validate-outputs` as Python wheel tasks. The pipeline installs the same
-  package, which is how `transformations/` imports `core`.
+  package. The pipeline cannot rely on installing it, so each file in
+  `transformations/` adds the bundle's `src/` folder (passed in as the
+  `shopsphere.source_path` setting) to `sys.path` before importing `core`.
 
 ## Configuration flow
 
 ```text
 databricks.yml variables (catalog, eventhubs_namespace, adf_service_principal_id)
         │
-        ├─> pipeline `configuration`  ─> spark.conf.get("shopsphere.catalog") in transformations/
+        ├─> pipeline `configuration`  ─> spark.conf.get("shopsphere.catalog"), "shopsphere.source_path", ... in transformations/
         └─> job task `parameters`     ─> --catalog argument of cdf-merge / validate-outputs
 ```
 
@@ -51,13 +53,17 @@ tied to an environment.
 ## Commands
 
 ```bash
-databricks bundle validate -t dev --profile <profile> --var adf_service_principal_id=<id>
-databricks bundle deploy   -t dev --profile <profile> --var adf_service_principal_id=<id>
-databricks bundle summary  -t dev --profile <profile> --var adf_service_principal_id=<id>
+export DATABRICKS_CONFIG_PROFILE=<profile>
 
-databricks bundle run shopsphere_cdf_merge  -t dev --profile <profile> --var adf_service_principal_id=<id>
-databricks bundle run shopsphere_validation -t dev --profile <profile> --var adf_service_principal_id=<id>
+databricks bundle validate -t dev --var="catalog=<catalog>" --var="eventhubs_namespace=<namespace>" --var="adf_service_principal_id=<id>"
+databricks bundle deploy   -t dev --var="catalog=<catalog>" --var="eventhubs_namespace=<namespace>" --var="adf_service_principal_id=<id>"
+databricks bundle summary  -t dev --var="catalog=<catalog>" --var="eventhubs_namespace=<namespace>" --var="adf_service_principal_id=<id>"
 ```
+
+Every command takes the same three `--var` flags; quote each one separately
+(zsh does not split a variable holding several flags). The jobs and the pipeline
+can then be started from the workspace UI, or with `databricks bundle run`
+and the same flags. Run them in the order below.
 
 Full setup, including Event Hubs, secrets and Data Factory:
 [`docs/deployment.md`](../docs/deployment.md).

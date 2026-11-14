@@ -49,6 +49,21 @@ Stage order, enforced by Azure Data Factory in the cloud and by
 
 **Bronze → Silver → CDF merge → Gold → Validation**
 
+## What has been verified
+
+| Part | Status |
+|---|---|
+| Transformation library, generator, local streaming stages | Unit tests on every push (`pytest`) |
+| Full local pipeline on real Delta tables, including the change feed, MERGE and re-runs | End-to-end test on every push (`pytest -m delta`) and run by hand |
+| **Azure**: Event Hubs, Lakeflow pipeline, CDF merge job, Gold, validation job | **Deployed and run end to end on Azure Databricks.** All six reconciliation checks passed: [record of the run](docs/azure-run.md) |
+| **Azure Data Factory** pipeline | Imported and run in Debug mode against the deployed workspace; it started each stage in order |
+| Kafka and Docker Compose path | Not run in CI. Run by hand only |
+| Scheduled triggers, alerts, the `prod` target | Defined or documented, not run |
+
+The Azure environment is created for a demo and deleted afterwards, so it is
+not running now. [Deploying to Azure](docs/deployment.md) is the checklist that
+was followed, with the problems met on the way written into it.
+
 ## What it demonstrates
 
 - **Exactly-one-place data quality.** One rule set drives the Lakeflow
@@ -108,11 +123,17 @@ More detail: [docs/running-locally.md](docs/running-locally.md).
 ## Deploy to Azure
 
 The Azure resources are not kept running between demos, so deployment starts
-from an empty subscription: [docs/deployment.md](docs/deployment.md).
+from an empty subscription: [docs/deployment.md](docs/deployment.md). What a
+real run produced, and what went wrong on the first attempt, is in
+[docs/azure-run.md](docs/azure-run.md).
 
 ```bash
 cd databricks_bundle
-databricks bundle deploy -t dev --profile <profile> --var adf_service_principal_id=<id>
+export DATABRICKS_CONFIG_PROFILE=<profile>
+databricks bundle deploy -t dev \
+  --var="catalog=<catalog>" \
+  --var="eventhubs_namespace=<namespace>" \
+  --var="adf_service_principal_id=<id>"
 ```
 
 ## Tests
@@ -147,6 +168,7 @@ What each layer of tests covers, and what is not tested:
 - [Design decisions and trade-offs](docs/design-decisions.md)
 - [Running locally](docs/running-locally.md)
 - [Deploying to Azure](docs/deployment.md)
+- [Record of the Azure run](docs/azure-run.md)
 - [Monitoring](docs/monitoring.md)
 - [Testing](docs/testing.md)
 - [ADF orchestration](orchestration/adf/README.md)

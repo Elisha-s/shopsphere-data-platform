@@ -69,12 +69,19 @@ order that was created, paid and shipped has three rows.
 
 1. Read the last processed Delta version of `silver.orders` from
    `metadata.pipeline_state`.
-2. Read the change feed for the versions after it.
+2. Read what changed since then. **First run** (no saved version): a snapshot of
+   `silver.orders` as of its latest version. **Every later run**: the change
+   feed for the versions after the saved one.
 3. Keep the newest event per order, by event time
    (`core/cdc.py::latest_change_per_order`).
-4. MERGE into `silver.current_orders` on `order_id`. An existing row is
-   overwritten only if the incoming event is newer.
-5. Save the new position, only after the MERGE succeeded.
+4. MERGE into `silver.current_orders` on `order_id` (the first run creates the
+   table). An existing row is overwritten only if the incoming event is newer.
+5. Save the version that was read, only after the MERGE succeeded.
+
+The first run reads a snapshot because a table created by a Lakeflow pipeline
+has no change data for its first version, so asking for the change feed from
+version 0 fails. This was found on the first Azure deployment
+([record](azure-run.md)).
 
 ## 6. Gold
 

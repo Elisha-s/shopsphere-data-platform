@@ -32,10 +32,15 @@ test on every push and pull request.
 - **Lakeflow-specific behaviour**: the `@dp.table` / `@dp.expect_all_or_drop`
   declarations, materialized view refresh and the Event Hubs connection only
   run on Databricks. The logic they call is tested; the wiring is verified by
-  deploying.
+  deploying, which was done once and recorded in [azure-run.md](azure-run.md).
+  That deployment found two defects the local tests could not: the project was
+  not importable inside the pipeline, and the first CDF merge asked for change
+  data that does not exist at version 0 of a Lakeflow-created table. Both are
+  fixed; neither has an automated test, because they only occur on Databricks.
 - **The Kafka source** of the local pipeline: needs a broker, so it is
   exercised through Docker Compose rather than in CI.
 - **The ADF pipeline**: CI checks that the definition is valid JSON. Its
-  behaviour is verified by running it in Data Factory.
+  behaviour was verified by running it once in Debug mode. The `Fail`
+  activities and timeouts have not been provoked.
 - **The Asset Bundle**: `databricks bundle validate` needs workspace
   credentials, so it is run by hand before deploying.

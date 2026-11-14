@@ -57,7 +57,19 @@ Nothing environment-specific is hardcoded:
 The pipeline expects a linked service named `LS_DATABRICKS_SHOPSPHERE`.
 Setup steps are in [`docs/deployment.md`](../../docs/deployment.md).
 
+## Status
+
+Imported into a Data Factory and run in Debug mode against a deployed
+workspace: it started the Bronze, Silver, merge and Gold stages in order and
+reached the validation job. See [docs/azure-run.md](../../docs/azure-run.md).
+Setup that is easy to get wrong: the linked service must be of type **Azure
+Databricks** (not *Delta Lake*), the factory's identity needs to be a
+Databricks service principal and have Contributor on the workspace, and every
+parameter default must be replaced, including the workspace URL.
+
 ## Known gaps
 
+- Only run in Debug mode; the failure paths (`Fail` activities, timeouts) have
+  not been provoked.
 - No trigger is attached; runs are manual.
 - No notification is sent when a `Fail` activity fires.

@@ -2,21 +2,29 @@
 
 [![Tests](https://github.com/Elisha-s/shopsphere-data-platform/actions/workflows/tests.yml/badge.svg)](https://github.com/Elisha-s/shopsphere-data-platform/actions/workflows/tests.yml)
 
-A streaming data platform for an e-commerce order feed, built on the medallion
-(Bronze / Silver / Gold) pattern. Order events are ingested, de-duplicated,
-validated, merged into a current-state table and aggregated into business
-metrics, and every run ends with a reconciliation that proves the layers agree.
+A streaming data platform for an e-commerce order feed, built on Azure and the
+medallion (Bronze / Silver / Gold) pattern. Order events stream into Azure
+Event Hubs, a Databricks pipeline cleans and de-duplicates them, and a
+reconciliation job proves at the end of every run that the layers agree.
 
-The same transformation code runs in two places:
+New to the project? Read the [plain-English walkthrough](docs/walkthrough.md):
+seven files make up the deployed platform.
 
-| Runtime | Ingestion | Processing | Orchestration | Use it for |
-|---|---|---|---|---|
-| **Local** (`local_pipeline/`) | Kafka, or JSON files | Open-source Spark Structured Streaming + Delta Lake | A Python runner | Running and demoing on a laptop, CI |
-| **Azure** (`databricks_bundle/`, `orchestration/adf/`) | Azure Event Hubs | Databricks Lakeflow Declarative Pipelines + Unity Catalog | Azure Data Factory | The managed, production-style deployment |
+## Tools used, and why
 
-The project started as the local version and was then migrated to Azure
-([why](docs/design-decisions.md#why-two-runtimes)). The business logic was
-pulled into one shared library so the two cannot drift apart.
+| Tool | What it does here | Why this one |
+|---|---|---|
+| **Azure Event Hubs** | Receives the order events | Managed streaming service with a Kafka-compatible endpoint, so Spark's Kafka source reads it without a special connector |
+| **Databricks Lakeflow Declarative Pipelines** | Builds the Bronze, Silver and Gold tables | Tables are declared, not scripted, and data-quality rules record how many rows failed each one |
+| **Delta Lake + Change Data Feed** | Stores every table and lists newly changed rows | Reliable table updates (MERGE), and the merge job reads only new rows |
+| **Unity Catalog** | Organises tables into catalogs and schemas | Dev and prod are separated by catalog, with one place for permissions |
+| **Databricks Asset Bundles** | Deploys the pipeline and jobs from code | Repeatable deployment from the command line instead of portal clicks |
+| **Databricks secret scope** | Holds the Event Hubs access key | The key is never in Git or in configuration |
+| **Azure Data Factory** | Runs the stages in order | Managed orchestration with per-stage failure handling, using its own managed identity |
+| **GitHub Actions** | Runs lint and tests on every push | Catches breakage before it is merged |
+
+A local version of the same logic (Kafka or JSON files, open-source Spark)
+also exists for development and CI. See [Local prototype](#local-prototype).
 
 ## Architecture
 
@@ -84,7 +92,37 @@ was followed, with the problems met on the way written into it.
 - **Deployment as code**: Databricks Asset Bundles with catalog-separated dev
   and prod, and a parameterised ADF pipeline with per-stage failure handling.
 
-## Run it locally
+## Deploy to Azure
+
+The Azure resources are not kept running between demos, so deployment starts
+from an empty subscription: [docs/deployment.md](docs/deployment.md). What a
+real run produced, and what went wrong on the first attempt, is in
+[docs/azure-run.md](docs/azure-run.md).
+
+```bash
+cd databricks_bundle
+export DATABRICKS_CONFIG_PROFILE=<profile>
+databricks bundle deploy -t dev \
+  --var="catalog=<catalog>" \
+  --var="eventhubs_namespace=<namespace>" \
+  --var="adf_service_principal_id=<id>"
+```
+
+## Tests
+
+```bash
+pytest             # fast: transformations, generator, streaming stages (no downloads)
+pytest -m delta    # end to end on real Delta tables: change feed, MERGE, saved position
+ruff check .
+```
+
+What each layer of tests covers, and what is not tested:
+[docs/testing.md](docs/testing.md).
+
+## Local prototype
+
+The first version of the project, kept for development and for the tests
+that run in CI. It runs the same transformation code on a laptop.
 
 Requirements: Python 3.10 to 3.12 and Java 17. On Windows, use the Docker
 option or WSL (local Spark needs extra Hadoop binaries on native Windows).
@@ -120,33 +158,6 @@ five events a second, and the pipeline running every 30 seconds.
 
 More detail: [docs/running-locally.md](docs/running-locally.md).
 
-## Deploy to Azure
-
-The Azure resources are not kept running between demos, so deployment starts
-from an empty subscription: [docs/deployment.md](docs/deployment.md). What a
-real run produced, and what went wrong on the first attempt, is in
-[docs/azure-run.md](docs/azure-run.md).
-
-```bash
-cd databricks_bundle
-export DATABRICKS_CONFIG_PROFILE=<profile>
-databricks bundle deploy -t dev \
-  --var="catalog=<catalog>" \
-  --var="eventhubs_namespace=<namespace>" \
-  --var="adf_service_principal_id=<id>"
-```
-
-## Tests
-
-```bash
-pytest             # fast: transformations, generator, streaming stages (no downloads)
-pytest -m delta    # end to end on real Delta tables: change feed, MERGE, saved position
-ruff check .
-```
-
-What each layer of tests covers, and what is not tested:
-[docs/testing.md](docs/testing.md).
-
 ## Repository layout
 
 | Path | What it is |
@@ -157,12 +168,13 @@ What each layer of tests covers, and what is not tested:
 | `databricks_bundle/resources/`, `databricks.yml` | Databricks Asset Bundle: pipeline, jobs, dev and prod targets |
 | `orchestration/adf/` | Azure Data Factory pipeline definition |
 | `ingestion/` | Event generator and producers (files, Kafka, Event Hubs) |
-| `local_pipeline/` | Local Spark + Delta runner, results viewer, Docker setup |
+| `local_pipeline/` | Local prototype: Spark + Delta runner, results viewer, Docker setup |
 | `tests/` | Unit tests and the end-to-end test |
 | `docs/` | Architecture, data flow, design decisions, deployment, monitoring, testing |
 
 ## Documentation
 
+- [Plain-English walkthrough](docs/walkthrough.md)
 - [Architecture](docs/architecture.md)
 - [Data flow, table by table](docs/data-flow.md)
 - [Design decisions and trade-offs](docs/design-decisions.md)

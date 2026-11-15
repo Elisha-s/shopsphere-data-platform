@@ -2,185 +2,171 @@
 
 [![Tests](https://github.com/Elisha-s/shopsphere-data-platform/actions/workflows/tests.yml/badge.svg)](https://github.com/Elisha-s/shopsphere-data-platform/actions/workflows/tests.yml)
 
-A streaming data platform for an e-commerce order feed, built on Azure and the
-medallion (Bronze / Silver / Gold) pattern. Order events stream into Azure
-Event Hubs, a Databricks pipeline cleans and de-duplicates them, and a
-reconciliation job proves at the end of every run that the layers agree.
+A streaming pipeline for an e-commerce order feed, built on Azure with the
+Bronze / Silver / Gold (medallion) pattern. Orders arrive as events, get
+cleaned and de-duplicated, are rolled up into one current row per order, and
+end up as customer and product metrics. At the end of every run a validation
+job checks that the numbers in each layer agree with each other.
 
-New to the project? Read the [plain-English walkthrough](docs/walkthrough.md):
-seven files make up the deployed platform.
+**Built with:** Azure Event Hubs, Azure Databricks (Lakeflow Declarative
+Pipelines, Unity Catalog, Delta Lake and Change Data Feed), Databricks Asset
+Bundles, Azure Data Factory, PySpark, GitHub Actions.
 
-## Tools used, and why
-
-| Tool | What it does here | Why this one |
-|---|---|---|
-| **Azure Event Hubs** | Receives the order events | Managed streaming service with a Kafka-compatible endpoint, so Spark's Kafka source reads it without a special connector |
-| **Databricks Lakeflow Declarative Pipelines** | Builds the Bronze, Silver and Gold tables | Tables are declared, not scripted, and data-quality rules record how many rows failed each one |
-| **Delta Lake + Change Data Feed** | Stores every table and lists newly changed rows | Reliable table updates (MERGE), and the merge job reads only new rows |
-| **Unity Catalog** | Organises tables into catalogs and schemas | Dev and prod are separated by catalog, with one place for permissions |
-| **Databricks Asset Bundles** | Deploys the pipeline and jobs from code | Repeatable deployment from the command line instead of portal clicks |
-| **Databricks secret scope** | Holds the Event Hubs access key | The key is never in Git or in configuration |
-| **Azure Data Factory** | Runs the stages in order | Managed orchestration with per-stage failure handling, using its own managed identity |
-| **GitHub Actions** | Runs lint and tests on every push | Catches breakage before it is merged |
-
-A local version of the same logic (Kafka or JSON files, open-source Spark)
-also exists for development and CI. See [Local prototype](#local-prototype).
-
-## Architecture
+## How the data flows
 
 ```mermaid
-flowchart TD
-    GEN["Order event generator<br/>lifecycle + injected bad, duplicate, late events"]
-    GEN -->|local| K["Kafka topic / JSON landing files"]
-    GEN -->|Azure| EH["Azure Event Hubs<br/>Kafka endpoint"]
-    K --> B
-    EH --> B
-
-    subgraph CORE["Shared transformation library: shopsphere_data_platform_etl.core"]
-        B["Bronze: order_events<br/>raw JSON + transport metadata"]
-        B --> S{"Silver<br/>flatten, de-duplicate, apply quality rules"}
-        S -->|passes every rule| SO["silver.orders<br/>one row per event, change feed on"]
-        S -->|breaks a rule| SI["silver.invalid_orders<br/>quarantine with reasons"]
-        SO -->|CDF merge job| CO["silver.current_orders<br/>one row per order, latest state"]
-        SO --> GA["gold.order_activity_by_status<br/>per-minute, streaming"]
-        CO --> GC["gold.customer_metrics"]
-        CO --> GP["gold.product_metrics"]
-    end
-
-    GC --> V["Validation job<br/>reconciles every layer, fails the run on mismatch"]
-    GP --> V
-    SI --> V
+flowchart LR
+    G["Event generator"] --> E["Azure Event Hubs"]
+    E --> B["Bronze<br/>bronze.order_events"]
+    B --> S["Silver<br/>silver.orders<br/>silver.invalid_orders"]
+    S --> C["CDF merge job<br/>silver.current_orders"]
+    S --> A["Gold<br/>order_activity_by_status"]
+    C --> M["Gold<br/>customer_metrics<br/>product_metrics"]
+    C --> V["Validation job"]
+    M --> V
+    S --> V
 ```
 
-Stage order, enforced by Azure Data Factory in the cloud and by
-`local_pipeline/run_pipeline.py` locally:
+Azure Data Factory runs the stages in this order: Bronze and Silver, the CDF
+merge, Gold, validation. Gold has to wait for the merge because the customer
+and product metrics are built from `silver.current_orders`.
 
-**Bronze → Silver → CDF merge → Gold → Validation**
+## What each stage does
 
-## What has been verified
+### Test data
 
-| Part | Status |
+Orders come from a generator, not a real shop. Each order
+moves through a lifecycle (created, paid, shipped, delivered, or cancelled)
+and every step is its own event. A small share of events is deliberately
+broken: some are invalid, some are delivered twice, and some arrive minutes
+late. That lets me check the pipeline against numbers I know are right.
+
+### Bronze: keep everything that arrived
+
+Spark reads Event Hubs through its Kafka-compatible endpoint. Each message is
+stored as it came, with the raw JSON, the partition and offset, and the time
+Event Hubs received it, next to the parsed fields. Nothing is filtered or
+dropped at this stage, not even a message that isn't valid JSON. Bronze is the
+record I can always go back to.
+
+### Silver: clean and check
+
+1. **Flatten.** The nested JSON becomes typed columns. A timestamp that can't be
+   parsed becomes NULL instead of crashing the pipeline, and a rule catches it
+   later.
+2. **Remove duplicates.** Event Hubs can deliver an event twice, so repeats are
+   dropped using the `event_id`. I use `dropDuplicatesWithinWatermark` with a
+   one-day window, so Spark only has to remember a day of ids, not every id
+   forever.
+3. **Apply ten quality rules.** For example, quantity and prices must be
+   greater than zero, `total_amount` must equal `quantity * unit_price`, the
+   ids must be present, and the status must be one of the five known ones.
+   Events that pass go to `silver.orders`. Events that fail go to
+   `silver.invalid_orders` with the names of the rules they broke, so nothing
+   disappears silently.
+
+The ten rules live in one dictionary and are used for the Lakeflow
+expectations, the quarantine filter and the failure reasons, so they can't get
+out of step with each other.
+
+### CDF merge: one current row per order
+
+`silver.orders` has one row per event, so an order that went through four
+statuses appears four times. The merge job builds `silver.current_orders`
+with one row per order holding its latest state.
+
+It doesn't re-read the whole table each time. `silver.orders` has Delta Change
+Data Feed turned on, which lists only the rows added since a given table
+version. The job remembers the last version it processed in a small state
+table, reads the change feed from the next version, and keeps only the newest
+event per order. Then it merges those into `current_orders`.
+
+Two details matter here:
+
+- **Late events can't overwrite newer ones.** "Newest" means event time, not
+  the time the row was written. The MERGE only updates an order if the
+  incoming event is newer than what's stored.
+- **A retry is safe.** The saved version is only updated after the MERGE
+  succeeds. If the job dies in between, the next run reads the same changes
+  again and the MERGE changes nothing.
+
+The first run has no saved version. Reading the change feed from version 0
+failed on Azure (see below), so the first run reads a snapshot of the table
+instead, and later runs use the change feed.
+
+### Gold: numbers for the business
+
+- `order_activity_by_status`: events per status per one-minute window,
+  computed as a stream from Silver. A window is written once it is complete,
+  so the latest ten minutes or so aren't in the table yet.
+- `customer_metrics`: orders, lifetime value, average order value and last
+  purchase per customer.
+- `product_metrics`: units sold, revenue, orders and unique customers per
+  product.
+
+The last two are built from `current_orders` and only count orders that are
+paid, shipped or delivered. Reading from `current_orders` rather than the
+event table means an order is counted once, not once per status change.
+
+### Validation: prove the layers agree
+
+The validation job runs six checks and fails the run if any of them don't
+pass. All six always run, so one failure shows the full list of problems.
+
+1. Bronze unique events = Silver valid + Silver invalid (nothing lost or double counted)
+2. `current_orders` has exactly one row per order
+3. Every order in `current_orders` holds its newest event
+4. Customer metrics match the totals from `current_orders`
+5. Product metrics match the totals from `current_orders`
+6. `current_orders` is not empty
+
+## What happened on Azure
+
+I deployed this to Azure and ran it end to end. The generator sent 3,082
+events, 54 of them deliberately invalid and 62 duplicated. The pipeline
+reported:
+
+| | Result |
 |---|---|
-| Transformation library, generator, local streaming stages | Unit tests on every push (`pytest`) |
-| Full local pipeline on real Delta tables, including the change feed, MERGE and re-runs | End-to-end test on every push (`pytest -m delta`) and run by hand |
-| **Azure**: Event Hubs, Lakeflow pipeline, CDF merge job, Gold, validation job | **Deployed and run end to end on Azure Databricks.** All six reconciliation checks passed: [record of the run](docs/azure-run.md) |
-| **Azure Data Factory** pipeline | Imported and run in Debug mode against the deployed workspace; it started each stage in order |
-| Kafka and Docker Compose path | Not run in CI. Run by hand only |
-| Scheduled triggers, alerts, the `prod` target | Defined or documented, not run |
+| Bronze rows | 3,082 |
+| Duplicates removed | 62 |
+| Silver valid / invalid | 2,966 / 54 |
+| Orders in `current_orders` | 1,633 |
+| Validation | all six checks passed |
 
-The Azure environment is created for a demo and deleted afterwards, so it is
-not running now. [Deploying to Azure](docs/deployment.md) is the checklist that
-was followed, with the problems met on the way written into it.
+Three things broke on the first run that my local tests didn't catch:
 
-## What it demonstrates
+- The project package couldn't be imported inside the Databricks pipeline. I
+  fixed it by adding the source folder to `sys.path` through a pipeline setting.
+- Gold failed because `current_orders` didn't exist yet. The stages have to run
+  in order (Silver, merge, Gold), which is what the Data Factory pipeline does.
+- The first merge failed because Delta has no change data at version 0 of a
+  table that Lakeflow creates. That's why the first run now reads a snapshot.
 
-- **Exactly-one-place data quality.** One rule set drives the Lakeflow
-  expectations, the quarantine filter and the per-record failure reasons.
-  Every event lands in `silver.orders` or `silver.invalid_orders`, never both,
-  never neither.
-- **Bounded-state de-duplication** of redelivered events with
-  `dropDuplicatesWithinWatermark`.
-- **Incremental, idempotent change processing.** The CDF merge job reads only
-  unprocessed Delta versions, keeps the newest event per order by event time,
-  and guards the MERGE so a late event cannot roll an order back.
-- **Late and out-of-order data** handled deliberately at each layer.
-- **Reconciliation, not hope.** Each run checks Bronze against Silver, Silver
-  against current state, and Gold totals against their source.
-- **A generator that exercises all of the above**: orders move through a
-  lifecycle, and a configurable share of events is invalid, duplicated or late.
-  The tests assert that the pipeline's counts match what the generator injected.
-- **Deployment as code**: Databricks Asset Bundles with catalog-separated dev
-  and prod, and a parameterised ADF pipeline with per-stage failure handling.
+The Azure environment was a short-lived demo, so it isn't left running. The
+full write-up is in [docs/azure-run.md](docs/azure-run.md).
 
-## Deploy to Azure
+## Project layout
 
-The Azure resources are not kept running between demos, so deployment starts
-from an empty subscription: [docs/deployment.md](docs/deployment.md). What a
-real run produced, and what went wrong on the first attempt, is in
-[docs/azure-run.md](docs/azure-run.md).
+| Path | Contents |
+|---|---|
+| `databricks_bundle/src/.../transformations/` | The Bronze, Silver and Gold pipeline files |
+| `databricks_bundle/src/.../jobs/` | The CDF merge job and the validation job |
+| `databricks_bundle/src/.../core/` | Shared logic: parsing, quality rules, change handling, metrics |
+| `databricks_bundle/resources/`, `databricks.yml` | Databricks Asset Bundle config for the pipeline and jobs |
+| `orchestration/adf/` | The Data Factory pipeline |
+| `ingestion/` | The event generator and producers |
+| `local_pipeline/` | A local Spark version used by the tests |
+| `tests/` | Unit tests and an end-to-end test, run in GitHub Actions |
+| `docs/` | Deployment steps, design decisions, testing notes |
 
-```bash
-cd databricks_bundle
-export DATABRICKS_CONFIG_PROFILE=<profile>
-databricks bundle deploy -t dev \
-  --var="catalog=<catalog>" \
-  --var="eventhubs_namespace=<namespace>" \
-  --var="adf_service_principal_id=<id>"
-```
+## Running it
 
-## Tests
+Deploying to Azure follows [docs/deployment.md](docs/deployment.md). To run the
+tests locally you need Python 3.10 to 3.12 and Java 17:
 
 ```bash
-pytest             # fast: transformations, generator, streaming stages (no downloads)
-pytest -m delta    # end to end on real Delta tables: change feed, MERGE, saved position
-ruff check .
-```
-
-What each layer of tests covers, and what is not tested:
-[docs/testing.md](docs/testing.md).
-
-## Local prototype
-
-The first version of the project, kept for development and for the tests
-that run in CI. It runs the same transformation code on a laptop.
-
-Requirements: Python 3.10 to 3.12 and Java 17. On Windows, use the Docker
-option or WSL (local Spark needs extra Hadoop binaries on native Windows).
-
-```bash
-python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# 1. Generate two hours of order events (about 5,000) as JSON files
-python -m ingestion.run_producer --target files --max-events 5000 --backfill-minutes 120
-
-# 2. Run Bronze -> Silver -> CDF merge -> Gold -> Validation
-python -m local_pipeline.run_pipeline --source files
-
-# 3. Look at the results
-python -m local_pipeline.show_results
+pytest              # unit tests
+pytest -m delta     # end-to-end test on real Delta tables
 ```
-
-The first run downloads the Delta Lake libraries from Maven Central (about a
-minute). `make demo`, `make show` and `make more` wrap the same commands.
-
-Run step 1 again with fewer events and then step 2 again to see incremental
-processing: only the new files are read, and only new Delta versions are merged.
-
-### With Kafka, in Docker
-
-```bash
-docker compose -f local_pipeline/docker/docker-compose.yml up --build
-```
-
-This starts Kafka, a Kafka UI on <http://localhost:8080>, a producer sending
-five events a second, and the pipeline running every 30 seconds.
-
-More detail: [docs/running-locally.md](docs/running-locally.md).
-
-## Repository layout
-
-| Path | What it is |
-|---|---|
-| `databricks_bundle/src/shopsphere_data_platform_etl/core/` | Shared business logic: schemas, quality rules, flattening, de-duplication, CDC, metrics |
-| `databricks_bundle/src/.../transformations/` | Lakeflow pipeline definitions (thin wrappers around `core`) |
-| `databricks_bundle/src/.../jobs/` | CDF merge job and validation job (run on Databricks and locally) |
-| `databricks_bundle/resources/`, `databricks.yml` | Databricks Asset Bundle: pipeline, jobs, dev and prod targets |
-| `orchestration/adf/` | Azure Data Factory pipeline definition |
-| `ingestion/` | Event generator and producers (files, Kafka, Event Hubs) |
-| `local_pipeline/` | Local prototype: Spark + Delta runner, results viewer, Docker setup |
-| `tests/` | Unit tests and the end-to-end test |
-| `docs/` | Architecture, data flow, design decisions, deployment, monitoring, testing |
-
-## Documentation
-
-- [Plain-English walkthrough](docs/walkthrough.md)
-- [Architecture](docs/architecture.md)
-- [Data flow, table by table](docs/data-flow.md)
-- [Design decisions and trade-offs](docs/design-decisions.md)
-- [Running locally](docs/running-locally.md)
-- [Deploying to Azure](docs/deployment.md)
-- [Record of the Azure run](docs/azure-run.md)
-- [Monitoring](docs/monitoring.md)
-- [Testing](docs/testing.md)
-- [ADF orchestration](orchestration/adf/README.md)
